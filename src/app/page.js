@@ -1,15 +1,15 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { fetchAPI } from '@/utils/api';
 
 export default function Home() {
-  // 1. Roles and Identity Simulation
+  const router = useRouter();
+  
+  // 1. Roles and Identity Session States
   const [role, setRole] = useState('secretary'); // secretary, trustee, auditor
-  const roleHeaders = {
-    secretary: { 'x-user-role': 'ADMIN', 'x-user-id': 'user-sec-1' },
-    trustee: { 'x-user-role': 'REVIEWER', 'x-user-id': 'user-tru-2' },
-    auditor: { 'x-user-role': 'AUDITOR', 'x-user-id': 'user-aud-3' }
-  };
+  const [userEmail, setUserEmail] = useState('secretary@bsmc.org.uk');
 
   // 2. Core State
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -18,7 +18,6 @@ export default function Home() {
   const [balances, setBalances] = useState([]);
   const [audits, setAudits] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [alerts, setAlerts] = useState([]);
 
   // Form Modals State
   const [txModalOpen, setTxModalOpen] = useState(false);
@@ -61,22 +60,32 @@ export default function Home() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterSearch, setFilterSearch] = useState('');
 
-  // 3. API Integrations
+  // 3. Load active session cookie
+  useEffect(() => {
+    const cookies = document.cookie.split(';');
+    const sessionCookie = cookies.find(c => c.trim().startsWith('bsmc_session='));
+    if (sessionCookie) {
+      try {
+        const session = JSON.parse(decodeURIComponent(sessionCookie.split('=')[1]));
+        if (session) {
+          setRole(session.role === 'ADMIN' ? 'secretary' : session.role === 'REVIEWER' ? 'trustee' : 'auditor');
+          setUserEmail(session.email);
+        }
+      } catch (err) {
+        console.error("Failed to parse session cookie:", err);
+      }
+    }
+  }, []);
+
+  // 4. API Data Fetching using fetchAPI wrapper
   const fetchData = async () => {
     try {
-      const headers = roleHeaders[role];
-      
-      const [txRes, donorRes, balRes, auditRes] = await Promise.all([
-        fetch(`/api/transactions?type=${filterType}&fund=${filterFund}&status=${filterStatus}&search=${filterSearch}`, { headers }),
-        fetch('/api/donors', { headers }),
-        fetch('/api/funds/balances', { headers }),
-        fetch('/api/audits', { headers })
+      const [txData, donorData, balData, auditData] = await Promise.all([
+        fetchAPI(`/api/transactions?type=${filterType}&fund=${filterFund}&status=${filterStatus}&search=${filterSearch}`),
+        fetchAPI('/api/donors'),
+        fetchAPI('/api/funds/balances'),
+        fetchAPI('/api/audits')
       ]);
-
-      const txData = await txRes.json();
-      const donorData = await donorRes.json();
-      const balData = await balRes.json();
-      const auditData = await auditRes.json();
 
       setTransactions(txData);
       setDonors(donorData);
@@ -84,7 +93,7 @@ export default function Home() {
       setAudits(auditData);
       setLoading(false);
     } catch (err) {
-      console.error("Failed to load financial API data:", err);
+      console.error("Failed to load financial API data:", err.message);
       setLoading(false);
     }
   };
@@ -119,6 +128,17 @@ export default function Home() {
       const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       if (meta) meta.content = systemPrefersDark ? 'dark' : 'light';
     }
+  };
+
+  // Logout Workflow
+  const handleLogout = () => {
+    // Clear cookie session
+    document.cookie = "bsmc_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;";
+    localStorage.removeItem("bsmc-role");
+    
+    // Redirect to login
+    router.push('/login');
+    router.refresh();
   };
 
   // Switch Active Tab
@@ -165,12 +185,10 @@ export default function Home() {
 
   const consolidated = getConsolidated();
 
-  // 4. API Operations
+  // 5. API Operations
   const handleAddTransaction = async (e) => {
     e.preventDefault();
-    const headers = { ...roleHeaders[role], 'Content-Type': 'application/json' };
     
-    // Structure splits payload
     let finalSplits = [];
     if (txForm.isSplit) {
       finalSplits = txForm.splits.map(s => ({ fund_id: s.fundId, amount: parseFloat(s.amount) }));
@@ -193,18 +211,11 @@ export default function Home() {
     };
 
     try {
-      const res = await fetch('/api/transactions', {
+      await fetchAPI('/api/transactions', {
         method: 'POST',
-        headers,
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
       
-      if (!res.ok) {
-        alert(data.error || 'Failed to create transaction');
-        return;
-      }
-
       setTxModalOpen(false);
       // Reset Form
       setTxForm({
@@ -223,13 +234,12 @@ export default function Home() {
       });
       fetchData();
     } catch (err) {
-      alert("Network error occurred.");
+      alert(err.message);
     }
   };
 
   const handleLogJummah = async (e) => {
     e.preventDefault();
-    const headers = { ...roleHeaders[role], 'Content-Type': 'application/json' };
     
     const payload = {
       type: 'INCOME',
@@ -246,17 +256,10 @@ export default function Home() {
     };
 
     try {
-      const res = await fetch('/api/transactions', {
+      await fetchAPI('/api/transactions', {
         method: 'POST',
-        headers,
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
-      
-      if (!res.ok) {
-        alert(data.error || 'Failed to log collection');
-        return;
-      }
 
       setJummahModalOpen(false);
       setJummahForm({
@@ -268,32 +271,23 @@ export default function Home() {
       });
       fetchData();
     } catch (err) {
-      alert("Network error.");
+      alert(err.message);
     }
   };
 
   const handleAddDonor = async (e) => {
     e.preventDefault();
-    const headers = { ...roleHeaders[role], 'Content-Type': 'application/json' };
-    
     try {
-      const res = await fetch('/api/donors', {
+      await fetchAPI('/api/donors', {
         method: 'POST',
-        headers,
         body: JSON.stringify(donorForm)
       });
-      const data = await res.json();
-      
-      if (!res.ok) {
-        alert(data.error || 'Failed to save donor profile');
-        return;
-      }
 
       setDonorModalOpen(false);
       setDonorForm({ name: '', address: '', giftAidEligible: true });
       fetchData();
     } catch (err) {
-      alert("Network error.");
+      alert(err.message);
     }
   };
 
@@ -305,66 +299,45 @@ export default function Home() {
       return;
     }
 
-    const headers = { ...roleHeaders[role], 'Content-Type': 'application/json' };
     try {
-      const res = await fetch(`/api/transactions/${txId}/void`, {
+      await fetchAPI(`/api/transactions/${txId}/void`, {
         method: 'POST',
-        headers,
         body: JSON.stringify({ reason })
       });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to void transaction');
-        return;
-      }
       fetchData();
     } catch (err) {
-      alert("Network error.");
+      alert(err.message);
     }
   };
 
   const handleBankDeposit = async (txId) => {
-    const headers = { ...roleHeaders[role] };
     try {
-      const res = await fetch(`/api/transactions/${txId}/bank`, {
-        method: 'POST',
-        headers
+      await fetchAPI(`/api/transactions/${txId}/bank`, {
+        method: 'POST'
       });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to bank deposit');
-        return;
-      }
       fetchData();
     } catch (err) {
-      alert("Network error.");
+      alert(err.message);
     }
   };
 
   const handleReconcileLock = async (txId) => {
-    const headers = { ...roleHeaders[role] };
     try {
-      const res = await fetch(`/api/transactions/${txId}/reconcile`, {
-        method: 'POST',
-        headers
+      await fetchAPI(`/api/transactions/${txId}/reconcile`, {
+        method: 'POST'
       });
-      const data = await res.json();
-      if (!res.ok) {
-        alert(data.error || 'Failed to reconcile transaction');
-        return;
-      }
       fetchData();
     } catch (err) {
-      alert("Network error.");
+      alert(err.message);
     }
   };
 
-  // Gift Aid Claim CSV download trigger (exposes the real API route)
+  // Gift Aid claims CSV export API trigger
   const triggerGiftAidClaimsDownload = () => {
     window.open('/api/reports/giftaid', '_blank');
   };
 
-  // Category and Split Helpers in Forms
+  // Category and Form Configs
   const INCOME_CATEGORIES = ["Donation", "Zakat", "Fitrana", "Madrasah Fees", "Event Tickets", "Interest", "Other"];
   const EXPENSE_CATEGORIES = ["Utilities", "Salaries", "Maintenance", "Charitable Payout", "Office Supplies", "Travel", "Other"];
 
@@ -375,13 +348,11 @@ export default function Home() {
     setTxForm(prev => {
       let updated = { ...prev, [key]: type === 'checkbox' ? checked : value };
       
-      // Auto routing Rule 4 for Interest category
       if (key === 'category' && value === 'Interest') {
         const ribaFund = balances.find(b => b.fundName === 'Interest/Riba');
         updated.fundId = ribaFund ? ribaFund.fundId : prev.fundId;
       }
 
-      // Auto Gift Aid checkbox setting for eligible donors
       if (key === 'donorId') {
         if (value === 'anonymous') {
           updated.giftAid = false;
@@ -394,7 +365,7 @@ export default function Home() {
     });
   };
 
-  // Donut SVG Generator
+  // Donut SVG Builder
   const renderDonutChart = () => {
     const activeBalances = balances.filter(b => b.balance > 0);
     const total = activeBalances.reduce((sum, b) => sum + b.balance, 0);
@@ -437,7 +408,6 @@ export default function Home() {
   };
 
   const renderTrendChart = () => {
-    // Standard mock data for visual inflows vs outflows
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
     const inflows = [1200, 1800, 1500, 2200, 2400, 3070];
     const outflows = [800, 1200, 950, 1600, 1400, 1320];
@@ -506,7 +476,7 @@ export default function Home() {
     );
   };
 
-  // P&L Calculator
+  // P&L Statement compilation
   const getPLStatement = () => {
     const income = {};
     const opExpense = {};
@@ -634,19 +604,18 @@ export default function Home() {
           </button>
         </nav>
 
-        <div class="sidebar-footer">
-          <div class="role-selector-card">
-            <label class="role-label" for="role-sel">Active Role</label>
-            <select id="role-sel" class="role-select" value={role} onChange={(e) => setRole(e.target.value)}>
-              <option value="secretary">🕌 Secretary (Admin)</option>
-              <option value="trustee">👥 Trustee (Reviewer)</option>
-              <option value="auditor">🔍 Auditor (Read-Only)</option>
-            </select>
+        <div className="sidebar-footer">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '16px' }}>
+            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>USER SESSION</span>
+            <strong style={{ fontSize: '0.85rem', color: '#ffffff', wordBreak: 'break-all' }}>{userEmail}</strong>
+            <button className="btn btn-secondary btn-sm" onClick={handleLogout} style={{ marginTop: '8px', padding: '6px' }}>
+              🚪 Log Out
+            </button>
           </div>
 
-          <div class="theme-switch-container">
-            <label class="theme-label" for="theme-sel">Theme</label>
-            <select id="theme-sel" class="theme-selector" value={theme} onChange={handleThemeChange}>
+          <div className="theme-switch-container">
+            <label className="theme-label" htmlFor="theme-sel">Theme</label>
+            <select id="theme-sel" className="theme-selector" value={theme} onChange={handleThemeChange}>
               <option value="system">⚡ System</option>
               <option value="light">☀️ Light</option>
               <option value="dark">🌙 Dark</option>
@@ -662,7 +631,6 @@ export default function Home() {
             <h2 className={`badge ${role === 'secretary' ? 'badge-admin' : role === 'trustee' ? 'badge-reviewer' : 'badge-auditor'}`}>
               {role === 'secretary' ? 'Financial Secretary Mode' : role === 'trustee' ? 'Trustee Mode (Read-Only)' : 'Auditor Mode (Read-Only)'}
             </h2>
-            <span className="user-indicator">Welcome, <strong>kennyanju</strong></span>
           </div>
           {role === 'secretary' && (
             <div className="header-actions">
@@ -673,16 +641,13 @@ export default function Home() {
         </header>
 
         <div className="scrollable-content">
-          {/* Alerts container */}
           <div className="alerts-container">
-            {/* Unreconciled Cash warning */}
             {transactions.filter(t => t.status === 'PENDING' && t.type === 'INCOME').length > 0 && (
               <div className="alert alert-warning">
                 <span>⚠️ <strong>Unreconciled Cash Alert:</strong> Friday cash collections are held as "Cash on Hand". Deposit at bank to update status.</span>
               </div>
             )}
             
-            {/* Fitrana warning */}
             {balances.find(b => b.fundName === 'Fitrana')?.balance > 0 && (
               <div className="alert alert-info">
                 <span>🕌 <strong>Fitrana Fund Reminder:</strong> Fitrana balance must be distributed to eligible poor families prior to Eid prayer.</span>
@@ -749,7 +714,7 @@ export default function Home() {
                     <h3>Financial Inflows vs Outflows</h3>
                     <span className="chart-legend">
                       <span className="legend-item"><span className="legend-dot income-dot"></span>Inflow</span>
-                      <span class="legend-item"><span class="legend-dot expense-dot"></span>Outflow</span>
+                      <span className="legend-item"><span className="legend-dot expense-dot"></span>Outflow</span>
                     </span>
                   </div>
                   <div className="chart-body">
@@ -1488,7 +1453,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* Background dimmer */}
       {(txModalOpen || donorModalOpen || jummahModalOpen) && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 999 }} />
       )}

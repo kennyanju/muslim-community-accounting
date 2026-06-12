@@ -89,6 +89,21 @@
   ],
   "transactions": [
     {
+      "id": "tx-7260310b",
+      "type": "INCOME",
+      "status": "BANKED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 45,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "reference_note": "Interest",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "",
+      "giftAid": false
+    },
+    {
       "id": "tx-715584b2",
       "type": "INCOME",
       "status": "BANKED",
@@ -252,9 +267,23 @@
       "transaction_id": "tx-715584b2",
       "fund_id": "fund-riba",
       "amount": 45
+    },
+    {
+      "id": "split-39b8fa55",
+      "transaction_id": "tx-7260310b",
+      "fund_id": "fund-riba",
+      "amount": 45
     }
   ],
   "audit_logs": [
+    {
+      "id": "log-7875d492",
+      "table_name": "transactions",
+      "record_id": "tx-7260310b",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "timestamp": "2026-06-12T15:30:03.210Z"
+    },
     {
       "id": "log-6e6760db",
       "table_name": "transactions",
