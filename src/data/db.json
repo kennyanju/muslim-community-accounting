@@ -1,0 +1,283 @@
+{
+  "users": [
+    {
+      "id": "user-sec-1",
+      "email": "secretary@bsmc.org.uk",
+      "role": "ADMIN"
+    },
+    {
+      "id": "user-tru-2",
+      "email": "trustee@bsmc.org.uk",
+      "role": "REVIEWER"
+    },
+    {
+      "id": "user-aud-3",
+      "email": "auditor@bsmc.org.uk",
+      "role": "AUDITOR"
+    }
+  ],
+  "funds": [
+    {
+      "id": "fund-lillah",
+      "name": "Lillah",
+      "is_restricted": false
+    },
+    {
+      "id": "fund-zakat",
+      "name": "Zakat",
+      "is_restricted": true
+    },
+    {
+      "id": "fund-fitrana",
+      "name": "Fitrana",
+      "is_restricted": true
+    },
+    {
+      "id": "fund-sadaqah",
+      "name": "Sadaqah Jariyah",
+      "is_restricted": false
+    },
+    {
+      "id": "fund-building",
+      "name": "Building Fund",
+      "is_restricted": false
+    },
+    {
+      "id": "fund-madrasah",
+      "name": "Madrasah Fees",
+      "is_restricted": false
+    },
+    {
+      "id": "fund-riba",
+      "name": "Interest/Riba",
+      "is_restricted": true
+    }
+  ],
+  "donors": [
+    {
+      "id": "don-1",
+      "name": "Dr. Majid Khan",
+      "is_anonymous": false,
+      "gift_aid_eligible": true,
+      "address_line_1": "12 Bristol Road",
+      "postcode": "BS4 1AA"
+    },
+    {
+      "id": "don-2",
+      "name": "Sister Fatima Al-Hassan",
+      "is_anonymous": false,
+      "gift_aid_eligible": true,
+      "address_line_1": "88 South Road",
+      "postcode": "BS3 2BB"
+    },
+    {
+      "id": "don-3",
+      "name": "Brother Tariq Mahmood",
+      "is_anonymous": false,
+      "gift_aid_eligible": false,
+      "address_line_1": "34 West Street",
+      "postcode": "BS5 8DD"
+    },
+    {
+      "id": "anonymous",
+      "name": "Anonymous Donor",
+      "is_anonymous": true,
+      "gift_aid_eligible": false,
+      "address_line_1": "",
+      "postcode": ""
+    }
+  ],
+  "transactions": [
+    {
+      "id": "tx-715584b2",
+      "type": "INCOME",
+      "status": "BANKED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 45,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "reference_note": "Interest",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "",
+      "giftAid": false
+    },
+    {
+      "id": "tx-1",
+      "type": "INCOME",
+      "status": "BANKED",
+      "method": "CASH",
+      "total_amount": 850,
+      "transaction_date": "2026-06-05",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "reference_note": "Donation",
+      "created_by": "user-sec-1",
+      "reconciled": true,
+      "notes": "Counters: Brother Ahmad & Brother Yusef. Deposited on Monday."
+    },
+    {
+      "id": "tx-2",
+      "type": "INCOME",
+      "status": "BANKED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 1500,
+      "transaction_date": "2026-06-06",
+      "donor_id": "don-1",
+      "receipt_url": "",
+      "reference_note": "Zakat",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "Direct bank transfer for Zakat fund.",
+      "giftAid": true
+    },
+    {
+      "id": "tx-3",
+      "type": "INCOME",
+      "status": "BANKED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 500,
+      "transaction_date": "2026-06-07",
+      "donor_id": "don-2",
+      "receipt_url": "",
+      "reference_note": "Donation",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "Restricted to water well initiative.",
+      "giftAid": true
+    },
+    {
+      "id": "tx-4",
+      "type": "EXPENSE",
+      "status": "BANKED",
+      "method": "DIRECT_DEBIT",
+      "total_amount": 320,
+      "transaction_date": "2026-06-08",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "reference_note": "Mosque Electric Utilities",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "British Gas electric invoice."
+    },
+    {
+      "id": "tx-5",
+      "type": "EXPENSE",
+      "status": "BANKED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 1000,
+      "transaction_date": "2026-06-09",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "reference_note": "Charitable Payout to Needy",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "Distribution to eligible beneficiaries (Asnaf: Poor & Needy)."
+    },
+    {
+      "id": "tx-6",
+      "type": "INCOME",
+      "status": "BANKED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 15.45,
+      "transaction_date": "2026-06-10",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "reference_note": "Interest",
+      "created_by": "user-sec-1",
+      "reconciled": true,
+      "notes": "Automatically categorized bank interest. To be disposed of without reward."
+    },
+    {
+      "id": "tx-7",
+      "type": "INCOME",
+      "status": "PENDING",
+      "method": "CASH",
+      "total_amount": 220,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "reference_note": "Fitrana Box",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "Collected in Fitrana box."
+    }
+  ],
+  "transaction_splits": [
+    {
+      "id": "split-1",
+      "transaction_id": "tx-1",
+      "fund_id": "fund-lillah",
+      "amount": 850
+    },
+    {
+      "id": "split-2",
+      "transaction_id": "tx-2",
+      "fund_id": "fund-zakat",
+      "amount": 1500
+    },
+    {
+      "id": "split-3",
+      "transaction_id": "tx-3",
+      "fund_id": "fund-sadaqah",
+      "amount": 500
+    },
+    {
+      "id": "split-4",
+      "transaction_id": "tx-4",
+      "fund_id": "fund-lillah",
+      "amount": 320
+    },
+    {
+      "id": "split-5",
+      "transaction_id": "tx-5",
+      "fund_id": "fund-zakat",
+      "amount": 1000
+    },
+    {
+      "id": "split-6",
+      "transaction_id": "tx-6",
+      "fund_id": "fund-riba",
+      "amount": 15.45
+    },
+    {
+      "id": "split-7",
+      "transaction_id": "tx-7",
+      "fund_id": "fund-fitrana",
+      "amount": 220
+    },
+    {
+      "id": "split-de15d055",
+      "transaction_id": "tx-715584b2",
+      "fund_id": "fund-riba",
+      "amount": 45
+    }
+  ],
+  "audit_logs": [
+    {
+      "id": "log-6e6760db",
+      "table_name": "transactions",
+      "record_id": "tx-715584b2",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "timestamp": "2026-06-12T15:21:36.085Z"
+    },
+    {
+      "id": "log-1",
+      "table_name": "transactions",
+      "record_id": "tx-1",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "timestamp": "2026-06-12T09:00:00.000Z"
+    },
+    {
+      "id": "log-2",
+      "table_name": "transactions",
+      "record_id": "tx-2",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "timestamp": "2026-06-12T09:15:00.000Z"
+    }
+  ]
+}
