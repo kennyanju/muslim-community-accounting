@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="system">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BSMC Financial Management System</title>
+  
+  <!-- Font integration -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <meta name="color-scheme" content="light dark">
+  <script>
+    {
+      const savedTheme = localStorage.getItem("bsmc-theme") || "system";
+      document.documentElement.setAttribute('data-theme', savedTheme);
+      if (savedTheme === "dark") {
+        document.querySelector('meta[name="color-scheme"]').content = "dark";
+      } else if (savedTheme === "light") {
+        document.querySelector('meta[name="color-scheme"]').content = "light";
+      } else {
+        const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        document.querySelector('meta[name="color-scheme"]').content = systemPrefersDark ? "dark" : "light";
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="24" height="24" rx="6" fill="url(#bsmc-logo-grad)"/>
+            <path d="M12 4L4 9L12 14L20 9L12 4Z" fill="white"/>
+            <path d="M4 14L12 19L20 14" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12 9V14" stroke="#4f46e5" stroke-width="2"/>
+            <defs>
+              <linearGradient id="bsmc-logo-grad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#10b981" />
+                <stop offset="1" stop-color="#059669" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <div class="logo-meta">
+            <span class="logo-text">BSMC <span class="highlight">Finance</span></span>
+            <span class="logo-subtext">Bristol South Mosque</span>
+          </div>
+        </div>
+      </div>
+      
+      <nav class="sidebar-menu">
+        <button class="menu-item active" data-target="dashboard" id="nav-dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="menu-icon">
+            <rect x="3" y="3" width="7" height="9" />
+            <rect x="14" y="3" width="7" height="5" />
+            <rect x="14" y="12" width="7" height="9" />
+            <rect x="3" y="16" width="7" height="5" />
+          </svg>
+          <span>Dashboard</span>
+        </button>
+        
+        <button class="menu-item" data-target="transactions" id="nav-transactions">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="menu-icon">
+            <rect x="2" y="5" width="20" height="14" rx="2" ry="2" />
+            <line x1="2" y1="10" x2="22" y2="10" />
+            <line x1="8" y1="15" x2="16" y2="15" />
+          </svg>
+          <span>Transactions Ledger</span>
+        </button>
+        
+        <button class="menu-item" data-target="donors" id="nav-donors">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="menu-icon">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+          </svg>
+          <span>Donors &amp; Gift Aid</span>
+        </button>
+        
+        <button class="menu-item" data-target="reports" id="nav-reports">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="menu-icon">
+            <line x1="18" y1="20" x2="18" y2="10" />
+            <line x1="12" y1="20" x2="12" y2="4" />
+            <line x1="6" y1="20" x2="6" y2="14" />
+          </svg>
+          <span>Reports &amp; Audits</span>
+        </button>
+
+        <button class="menu-item" data-target="receipts" id="nav-receipts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="menu-icon">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+          </svg>
+          <span>Receipt Generator</span>
+        </button>
+      </nav>
+      
+      <div class="sidebar-footer">
+        <div class="role-selector-card">
+          <label for="role-select" class="role-label">Active Role</label>
+          <select id="role-select" class="role-select">
+            <option value="secretary">🕌 Secretary (Admin)</option>
+            <option value="trustee">👥 Trustee (Reviewer)</option>
+            <option value="auditor">🔍 Auditor (Read-Only)</option>
+          </select>
+        </div>
+        
+        <div class="theme-switch-container">
+          <label class="theme-label" for="theme-selector">Theme</label>
+          <select id="theme-selector" class="theme-selector">
+            <option value="system">⚡ System</option>
+            <option value="light">☀️ Light</option>
+            <option value="dark">🌙 Dark</option>
+          </select>
+        </div>
+      </div>
+    </aside>
+    
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Top Header -->
+      <header class="main-header">
+        <div class="header-brand-title">
+          <h2 id="role-badge" class="badge badge-admin">Financial Secretary Mode</h2>
+          <span class="user-indicator">Welcome, <strong>kennyanju</strong></span>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-secondary" id="btn-quick-jummah">
+            🕌 Jummah Log
+          </button>
+          <button class="btn btn-primary" id="btn-add-transaction">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="btn-icon">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Add Transaction
+          </button>
+        </div>
+      </header>
+      
+      <div class="scrollable-content">
+        <!-- ALERTS PANEL -->
+        <div class="alerts-container" id="alerts-panel">
+          <!-- Populated dynamically -->
+        </div>
+
+        <!-- 1. DASHBOARD VIEW -->
+        <section id="view-dashboard" class="content-view active-view">
+          <div class="view-header">
+            <div>
+              <h1 class="view-title">Financial Summary</h1>
+              <p class="view-subtitle">Islamic Restricted and Unrestricted fund balances</p>
+            </div>
+            <div class="date-badge" id="dashboard-date">June 2026</div>
+          </div>
+          
+          <!-- Consolidated Balances Grid -->
+          <div class="balances-summary-grid">
+            <div class="balance-summary-card main-summary">
+              <span class="card-tag">Consolidated</span>
+              <h2>Total Funds</h2>
+              <span class="balance-amount" id="total-funds-val">£0.00</span>
+              <div class="balance-meta-split">
+                <span>Bank: <strong id="total-bank-val">£0.00</strong></span>
+                <span>Cash on Hand: <strong id="total-cash-val">£0.00</strong></span>
+              </div>
+            </div>
+            
+            <div class="balance-summary-card restricted-sum">
+              <span class="card-tag restricted">Restricted Funds</span>
+              <h2>Zakat &amp; Fitrana</h2>
+              <span class="balance-amount" id="restricted-funds-val">£0.00</span>
+              <p class="fund-subinfo">Must be dispersed only to eligible categories (Asnaf).</p>
+            </div>
+            
+            <div class="balance-summary-card unrestricted-sum">
+              <span class="card-tag unrestricted">Unrestricted Funds</span>
+              <h2>Lillah &amp; Sadaqah</h2>
+              <span class="balance-amount" id="unrestricted-funds-val">£0.00</span>
+              <p class="fund-subinfo">Available for operations, utilities, maintenance, and salaries.</p>
+            </div>
+          </div>
+          
+          <!-- Specific Fund Wallets Grid -->
+          <h3 class="section-title">Individual Fund Wallets</h3>
+          <div class="funds-grid">
+            <div class="fund-wallet-card" id="wallet-lillah">
+              <div class="wallet-header">
+                <span class="wallet-name">Lillah (Unrestricted)</span>
+                <span class="wallet-type type-unrestricted">Unrestricted</span>
+              </div>
+              <span class="wallet-val">£0.00</span>
+            </div>
+            
+            <div class="fund-wallet-card" id="wallet-zakat">
+              <div class="wallet-header">
+                <span class="wallet-name">Zakat</span>
+                <span class="wallet-type type-restricted">Restricted</span>
+              </div>
+              <span class="wallet-val">£0.00</span>
+            </div>
+            
+            <div class="fund-wallet-card" id="wallet-fitrana">
+              <div class="wallet-header">
+                <span class="wallet-name">Fitrana</span>
+                <span class="wallet-type type-restricted">Restricted</span>
+              </div>
+              <span class="wallet-val">£0.00</span>
+            </div>
+            
+            <div class="fund-wallet-card" id="wallet-sadaqah">
+              <div class="wallet-header">
+                <span class="wallet-name">Sadaqah Jariyah</span>
+                <span class="wallet-type type-unrestricted">Unrestricted</span>
+              </div>
+              <span class="wallet-val">£0.00</span>
+            </div>
+            
+            <div class="fund-wallet-card" id="wallet-building">
+              <div class="wallet-header">
+                <span class="wallet-name">Building Fund</span>
+                <span class="wallet-type type-unrestricted">Unrestricted</span>
+              </div>
+              <span class="wallet-val">£0.00</span>
+            </div>
+            
+            <div class="fund-wallet-card" id="wallet-madrasah">
+              <div class="wallet-header">
+                <span class="wallet-name">Madrasah Fees</span>
+                <span class="wallet-type type-unrestricted">Unrestricted</span>
+              </div>
+              <span class="wallet-val">£0.00</span>
+            </div>
+            
+            <div class="fund-wallet-card" id="wallet-riba">
+              <div class="wallet-header">
+                <span class="wallet-name">Interest/Riba</span>
+                <span class="wallet-type type-riba">Riba Restricted</span>
+              </div>
+              <span class="wallet-val">£0.00</span>
+              <div class="riba-tooltip">Cannot be used for operations. Discard without reward.</div>
+            </div>
+          </div>
+          
+          <!-- Charts Section -->
+          <div class="dashboard-charts-grid">
+            <div class="chart-card glass-card">
+              <div class="chart-header">
+                <h3>Financial Inflows vs Outflows</h3>
+                <span class="chart-legend">
+                  <span class="legend-item"><span class="legend-dot income-dot"></span>Inflow</span>
+                  <span class="legend-item"><span class="legend-dot expense-dot"></span>Outflow</span>
+                </span>
+              </div>
+              <div class="chart-body" id="trend-chart-container">
+                <svg id="svg-trend" viewBox="0 0 500 240" class="interactive-chart"></svg>
+              </div>
+            </div>
+            
+            <div class="chart-card glass-card small-chart">
+              <div class="chart-header">
+                <h3>Fund Allocation</h3>
+              </div>
+              <div class="chart-body donut-chart-body" id="distribution-chart-container">
+                <svg id="svg-distribution-donut" viewBox="0 0 240 240" class="interactive-chart"></svg>
+              </div>
+              <div class="chart-category-legend" id="distribution-legend">
+                <!-- Dynamically populated -->
+              </div>
+            </div>
+          </div>
+          
+          <!-- Recent Transactions -->
+          <div class="dashboard-table-card glass-card">
+            <div class="table-card-header">
+              <h3>Recent Ledger Activities</h3>
+              <button class="btn btn-secondary btn-sm" id="btn-dashboard-view-all">Open Full Ledger</button>
+            </div>
+            <div class="table-wrapper">
+              <table class="ledger-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th>Fund Wallet</th>
+                    <th>Category</th>
+                    <th>Method/Status</th>
+                    <th>Amount</th>
+                  </tr>
+                </thead>
+                <tbody id="recent-ledger-tbody">
+                  <!-- Injected dynamically -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+        
+        <!-- 2. TRANSACTIONS LEDGER VIEW -->
+        <section id="view-transactions" class="content-view">
+          <div class="view-header">
+            <div>
+              <h1 class="view-title">Transaction Ledger</h1>
+              <p class="view-subtitle">Audit-safe log of incomes, expenses, and reconciliations</p>
+            </div>
+          </div>
+          
+          <!-- Filters Toolbar -->
+          <div class="filter-toolbar glass-card">
+            <div class="filter-group">
+              <label for="f-type">Type</label>
+              <select id="f-type" class="form-control-sm">
+                <option value="all">All Types</option>
+                <option value="income">Income</option>
+                <option value="expense">Expense</option>
+              </select>
+            </div>
+            
+            <div class="filter-group">
+              <label for="f-fund">Fund</label>
+              <select id="f-fund" class="form-control-sm">
+                <option value="all">All Funds</option>
+                <option value="Lillah">Lillah (Unrestricted)</option>
+                <option value="Zakat">Zakat</option>
+                <option value="Fitrana">Fitrana</option>
+                <option value="Sadaqah Jariyah">Sadaqah Jariyah</option>
+                <option value="Building Fund">Building Fund</option>
+                <option value="Madrasah Fees">Madrasah Fees</option>
+                <option value="Interest/Riba">Interest/Riba</option>
+              </select>
+            </div>
+            
+            <div class="filter-group">
+              <label for="f-status">Status</label>
+              <select id="f-status" class="form-control-sm">
+                <option value="all">All Statuses</option>
+                <option value="Active">Active</option>
+                <option value="Cash on Hand">Cash on Hand</option>
+                <option value="Banked">Banked</option>
+                <option value="Voided">Voided</option>
+                <option value="Failed">Failed (Reversals)</option>
+              </select>
+            </div>
+            
+            <div class="filter-group search-filter">
+              <label for="f-search">Search Description / Donor</label>
+              <input type="text" id="f-search" placeholder="Type keyword..." class="form-control-sm">
+            </div>
+          </div>
+          
+          <!-- Ledger Results Card -->
+          <div class="full-ledger-card glass-card">
+            <div class="table-wrapper">
+              <table class="ledger-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th>Donor</th>
+                    <th>Fund</th>
+                    <th>Category</th>
+                    <th>Payment Method</th>
+                    <th>Status</th>
+                    <th>Amt</th>
+                    <th class="actions-col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="full-ledger-tbody">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+            
+            <!-- Summary Strip -->
+            <div class="ledger-summary-strip">
+              <div>Filtered: <span id="filtered-ledger-count">0</span> transactions</div>
+              <div class="balance-strip-values">
+                <span>Inflows: <strong id="strip-inflow-val">£0.00</strong></span>
+                <span>Outflows: <strong id="strip-outflow-val" class="expense-val">£0.00</strong></span>
+                <span>Net: <strong id="strip-net-val">£0.00</strong></span>
+              </div>
+            </div>
+          </div>
+        </section>
+        
+        <!-- 3. DONORS VIEW -->
+        <section id="view-donors" class="content-view">
+          <div class="view-header">
+            <div>
+              <h1 class="view-title">Donors &amp; Gift Aid</h1>
+              <p class="view-subtitle">UK HMRC compliant Gift Aid declaration log &amp; donor directory</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-primary" id="btn-add-donor">
+                + New Donor
+              </button>
+            </div>
+          </div>
+          
+          <div class="donors-layout-grid">
+            <!-- Donors Directory -->
+            <div class="donors-list-card glass-card">
+              <h3>Donor Registry</h3>
+              <div class="table-wrapper">
+                <table class="ledger-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Address</th>
+                      <th>Gift Aid Signed</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="donors-tbody">
+                    <!-- Populated dynamically -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            
+            <!-- Gift Aid Claims Generator -->
+            <div class="gift-aid-panel glass-card">
+              <h3>HMRC Gift Aid Claims Assistant</h3>
+              <p class="info-p">Generate schedules of eligible donations with signed declarations and UK addresses for HMRC submission.</p>
+              
+              <div class="claim-stats">
+                <div class="claim-stat">
+                  <span>Eligible Donations:</span>
+                  <strong id="ga-eligible-count">0</strong>
+                </div>
+                <div class="claim-stat">
+                  <span>Total Eligible Value:</span>
+                  <strong id="ga-eligible-value">£0.00</strong>
+                </div>
+                <div class="claim-stat">
+                  <span>Estimated Tax Rebate (25%):</span>
+                  <strong id="ga-rebate-value" class="text-success">£0.00</strong>
+                </div>
+              </div>
+              
+              <div class="claim-actions">
+                <button class="btn btn-primary btn-block" id="btn-download-hmrc-csv">
+                  📥 Export HMRC Gift Aid Schedule (CSV)
+                </button>
+              </div>
+              
+              <h4 style="margin-top:20px;">HMRC Claims Ledger</h4>
+              <div class="table-wrapper ga-table-wrapper">
+                <table class="ledger-table mini-table">
+                  <thead>
+                    <tr>
+                      <th>Donor Name</th>
+                      <th>Postcode</th>
+                      <th>Date</th>
+                      <th>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody id="ga-claims-tbody">
+                    <!-- Dynamic -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+        
+        <!-- 4. REPORTS & AUDITS VIEW -->
+        <section id="view-reports" class="content-view">
+          <div class="view-header">
+            <div>
+              <h1 class="view-title">Reports &amp; Audit Logs</h1>
+              <p class="view-subtitle">Financial statements and immutable software audit trails</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-secondary" id="btn-export-raw-data">
+                📥 Export All Data (JSON)
+              </button>
+              <button class="btn btn-primary" onclick="window.print()">
+                🖨️ Print P&amp;L Report
+              </button>
+            </div>
+          </div>
+          
+          <div class="reports-container-grid">
+            <!-- P&L Sheet -->
+            <div class="report-block glass-card print-report-area">
+              <div class="report-block-header">
+                <h2>Bristol South Muslim Community</h2>
+                <h3>Income &amp; Expenditure Statement</h3>
+                <span id="p-l-period">June 2026</span>
+              </div>
+              <div class="pl-statement">
+                <div class="pl-section">
+                  <h4 class="pl-section-title">Income Sources</h4>
+                  <div id="rep-income-rows" class="pl-rows">
+                    <!-- Dynamic -->
+                  </div>
+                  <div class="pl-row pl-total-row">
+                    <span>Total Income</span>
+                    <span id="rep-total-income">£0.00</span>
+                  </div>
+                </div>
+                
+                <div class="pl-section">
+                  <h4 class="pl-section-title">Operational Expenses (Paid via Lillah/Sadaqah)</h4>
+                  <div id="rep-expense-rows" class="pl-rows">
+                    <!-- Dynamic -->
+                  </div>
+                  <div class="pl-row pl-total-row">
+                    <span>Total Operational Expenses</span>
+                    <span id="rep-total-expense" class="expense-val">£0.00</span>
+                  </div>
+                </div>
+                
+                <div class="pl-section">
+                  <h4 class="pl-section-title">Charitable Disbursements / Payouts (Restricted Zakat/Fitrana)</h4>
+                  <div id="rep-disbursed-rows" class="pl-rows">
+                    <!-- Dynamic -->
+                  </div>
+                  <div class="pl-row pl-total-row">
+                    <span>Total Restricted Disbursements</span>
+                    <span id="rep-total-disbursed" class="expense-val">£0.00</span>
+                  </div>
+                </div>
+                
+                <div class="pl-section pl-net-income-section">
+                  <div class="pl-row pl-net-income-row">
+                    <span>Net Operating Surplus / Deficit</span>
+                    <span id="rep-net-surplus">£0.00</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Audit Trail Log -->
+            <div class="report-side-column">
+              <div class="analytics-stat-card glass-card">
+                <h3>Fund Compliance Report</h3>
+                <div class="compliance-metric">
+                  <span>Zakat Reserves:</span>
+                  <strong id="comp-zakat-balance">£0.00</strong>
+                </div>
+                <div class="compliance-metric">
+                  <span>Fitrana Reserves:</span>
+                  <strong id="comp-fitrana-balance">£0.00</strong>
+                </div>
+                <div class="compliance-metric">
+                  <span>Riba Purging Account:</span>
+                  <strong id="comp-riba-balance">£0.00</strong>
+                </div>
+                <hr style="border-color: rgba(255,255,255,0.1); margin: 12px 0;">
+                <p class="micro-text">Warning: Operating expenses cannot be paid using Zakat or Fitrana funds. Check audit trails below for adjustments.</p>
+              </div>
+              
+              <div class="analytics-stat-card glass-card">
+                <h3>Immutable Software Audit Logs</h3>
+                <div class="audit-timeline" id="audit-logs-timeline">
+                  <!-- Dynamic -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+        
+        <!-- 5. RECEIPTS & INVOICE BUILDER VIEW -->
+        <section id="view-receipts" class="content-view">
+          <div class="view-header">
+            <div>
+              <h1 class="view-title">Receipt &amp; Invoice Builder</h1>
+              <p class="view-subtitle">Generate official donation receipts and vendor invoices</p>
+            </div>
+          </div>
+          
+          <div class="invoice-workspace">
+            <!-- Receipt Builder Form -->
+            <div class="invoice-form-panel glass-card">
+              <h3>Receipt Details</h3>
+              <form id="receipt-builder-form">
+                <div class="form-row-2">
+                  <div class="form-group">
+                    <label for="rcpt-number">Document No.</label>
+                    <input type="text" id="rcpt-number" value="BSMC-2026-0001">
+                  </div>
+                  <div class="form-group">
+                    <label for="rcpt-type">Document Type</label>
+                    <select id="rcpt-type">
+                      <option value="receipt">Official Donation Receipt</option>
+                      <option value="invoice">Standard Invoice</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div class="form-row-2">
+                  <div class="form-group">
+                    <label for="rcpt-date">Issue Date</label>
+                    <input type="date" id="rcpt-date" value="2026-06-12">
+                  </div>
+                  <div class="form-group">
+                    <label for="rcpt-donor">Link to Donor</label>
+                    <select id="rcpt-donor">
+                      <!-- Dynamic -->
+                    </select>
+                  </div>
+                </div>
+                
+                <div class="form-divider">Entity Details</div>
+                <div class="form-group">
+                  <label for="rcpt-from">Issuer (Mosque Information)</label>
+                  <textarea id="rcpt-from" rows="2">Bristol South Muslim Community (BSMC)
+100 Mosque Road, Bristol, BS3 1AB
+charity-no: 1234567
+finance@bsmc.org.uk</textarea>
+                </div>
+                
+                <div class="form-group">
+                  <label for="rcpt-to">Recipient (Donor / Business)</label>
+                  <textarea id="rcpt-to" rows="2" placeholder="Donor details will load here"></textarea>
+                </div>
+                
+                <div class="form-divider">Items / Donation Lines</div>
+                <div id="receipt-items-container">
+                  <div class="invoice-item-row" data-index="0">
+                    <div class="col-desc">
+                      <input type="text" class="r-item-desc form-control-sm" placeholder="Description of donation/service" value="General Lillah Donation" required>
+                    </div>
+                    <div class="col-qty">
+                      <input type="number" class="r-item-qty form-control-sm" placeholder="Qty" value="1" min="1" required>
+                    </div>
+                    <div class="col-rate">
+                      <input type="number" class="r-item-rate form-control-sm" placeholder="Amount" value="250.00" min="0" step="0.01" required>
+                    </div>
+                    <div class="col-delete">
+                      <button type="button" class="btn-delete-item-r">&times;</button>
+                    </div>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-add-receipt-item" style="margin-top: 10px;">
+                  + Add Line Item
+                </button>
+                
+                <div class="form-row-2" style="margin-top: 15px;">
+                  <div class="form-group">
+                    <label for="rcpt-gift-aid-box" class="checkbox-label">
+                      <input type="checkbox" id="rcpt-gift-aid-box"> Gift Aid Claimable (25% Add-on)
+                    </label>
+                  </div>
+                </div>
+              </form>
+            </div>
+            
+            <!-- Print/PDF Preview -->
+            <div class="invoice-preview-panel glass-card">
+              <div class="preview-actions">
+                <h4>Preview Document</h4>
+                <div>
+                  <button class="btn btn-secondary btn-sm" id="btn-rcpt-sample">Load Last Donation</button>
+                  <button class="btn btn-primary btn-sm" id="btn-print-receipt">
+                    🖨️ Print / Save PDF
+                  </button>
+                </div>
+              </div>
+              
+              <div class="invoice-paper" id="receipt-print-paper">
+                <div class="invoice-paper-header">
+                  <div class="invoice-brand">
+                    <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#10b981" stroke-width="2">
+                      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                    </svg>
+                    <div>
+                      <h2 class="brand-title" id="prev-rcpt-header-name">Bristol South Muslim Community</h2>
+                      <p class="brand-tagline">Registered Charity No. 1234567</p>
+                    </div>
+                  </div>
+                  <div class="invoice-title-block">
+                    <h1 class="invoice-main-title" id="prev-rcpt-title">DONATION RECEIPT</h1>
+                    <div class="invoice-meta-item">
+                      <span>Ref No:</span>
+                      <strong id="prev-rcpt-no">BSMC-2026-0001</strong>
+                    </div>
+                    <div class="invoice-meta-item">
+                      <span>Date:</span>
+                      <strong id="prev-rcpt-date">2026-06-12</strong>
+                    </div>
+                  </div>
+                </div>
+                
+                <hr class="invoice-hr">
+                
+                <div class="invoice-billing-addresses">
+                  <div class="billing-col">
+                    <span class="billing-header">ISSUER:</span>
+                    <pre id="prev-rcpt-from" class="billing-pre">BSMC Finance</pre>
+                  </div>
+                  
+                  <div class="billing-col">
+                    <span class="billing-header">RECIPIENT:</span>
+                    <pre id="prev-rcpt-to" class="billing-pre">Anonymous</pre>
+                  </div>
+                </div>
+                
+                <table class="invoice-preview-table">
+                  <thead>
+                    <tr>
+                      <th>Description</th>
+                      <th class="col-qty text-right">Qty</th>
+                      <th class="col-rate text-right">Amount</th>
+                      <th class="col-total text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody id="prev-rcpt-items-tbody">
+                    <!-- Dynamic -->
+                  </tbody>
+                </table>
+                
+                <div class="invoice-totals-section">
+                  <div class="totals-block">
+                    <div class="total-row">
+                      <span>Subtotal:</span>
+                      <span id="prev-rcpt-subtotal">£0.00</span>
+                    </div>
+                    <div class="total-row" id="prev-rcpt-gift-aid-row">
+                      <span>Gift Aid Rebate Potential:</span>
+                      <span id="prev-rcpt-giftaid">£0.00</span>
+                    </div>
+                    <hr class="totals-hr">
+                    <div class="total-row grand-total-row">
+                      <span>Total Value:</span>
+                      <span id="prev-rcpt-total">£0.00</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="invoice-footer-notes" id="prev-rcpt-notes">
+                  <p><strong>Note for UK Taxpayers:</strong> Gift Aid increases the value of your charity donations by choosing to have the tax back. Thank you for your generous support!</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- ADD/EDIT TRANSACTION MODAL -->
+  <dialog id="modal-tx" class="glass-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="tx-modal-title">Add Transaction</h3>
+        <button class="btn-close-modal" id="btn-close-tx-modal">&times;</button>
+      </div>
+      <form id="tx-form">
+        <input type="hidden" id="tx-edit-id">
+        <div class="form-row-2">
+          <div class="form-group">
+            <label for="tx-type">Transaction Type</label>
+            <select id="tx-type" required>
+              <option value="income">Income (Donation / Fees)</option>
+              <option value="expense">Expense (Payout / Bill)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="tx-date">Date</label>
+            <input type="date" id="tx-date" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="tx-desc">Description</label>
+          <input type="text" id="tx-desc" placeholder="e.g. Friday Jummah cash collection, Mosque electric bill" required>
+        </div>
+
+        <div class="form-row-2" id="tx-single-row">
+          <div class="form-group">
+            <label for="tx-fund">Fund Allocation</label>
+            <select id="tx-fund" required>
+              <option value="Lillah">Lillah (Unrestricted)</option>
+              <option value="Zakat">Zakat (Restricted)</option>
+              <option value="Fitrana">Fitrana (Restricted)</option>
+              <option value="Sadaqah Jariyah">Sadaqah Jariyah (Unrestricted)</option>
+              <option value="Building Fund">Building Fund (Unrestricted)</option>
+              <option value="Madrasah Fees">Madrasah Fees (Unrestricted)</option>
+              <option value="Interest/Riba">Interest/Riba (Restricted)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="tx-category">Category</label>
+            <select id="tx-category" required>
+              <!-- Populated dynamically based on type -->
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row-2" id="tx-amount-row">
+          <div class="form-group">
+            <label for="tx-amount">Amount (£)</label>
+            <input type="number" id="tx-amount" min="0.01" step="0.01" placeholder="0.00" required>
+          </div>
+          <div class="form-group">
+            <label for="tx-method">Payment Method</label>
+            <select id="tx-method" required>
+              <option value="Cash">Cash</option>
+              <option value="Bank Transfer">Bank Transfer</option>
+              <option value="Card Machine">Card Machine</option>
+              <option value="Direct Debit">Direct Debit</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- SPLIT TRANSACTION TOGGLE (INCOME ONLY) -->
+        <div id="split-toggle-container" class="form-group checkbox-container">
+          <label for="tx-is-split">
+            <input type="checkbox" id="tx-is-split"> Split this donation across multiple funds
+          </label>
+        </div>
+
+        <!-- SPLIT FIELDS PANEL -->
+        <div id="split-fields-panel" class="split-panel" style="display: none;">
+          <h4>Donation Splits</h4>
+          <div id="split-rows-container">
+            <!-- Injected by Javascript -->
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-add-split-row">+ Add Split</button>
+          <div class="split-total-alert" id="split-total-badge">Split total matches donation amount.</div>
+        </div>
+
+        <div class="form-row-2">
+          <div class="form-group" id="donor-select-group">
+            <label for="tx-donor">Donor Profile</label>
+            <select id="tx-donor">
+              <option value="anonymous">Anonymous (Non-Gift-Aid)</option>
+              <!-- Populated dynamically -->
+            </select>
+          </div>
+          <div class="form-group checkbox-container" id="gift-aid-group" style="align-self: flex-end; padding-bottom: 12px;">
+            <label for="tx-giftaid">
+              <input type="checkbox" id="tx-giftaid"> Claim Gift Aid
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="tx-upload">Counting Slip / Receipt Photo (Upload)</label>
+          <input type="file" id="tx-upload" accept="image/*">
+          <div id="upload-preview" class="upload-preview-thumb"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="tx-notes">Audit Notes (Optional/Mandatory for Zakat)</label>
+          <textarea id="tx-notes" rows="2" placeholder="Enter notes here. E.g. Asnaf categories for Zakat payouts, or cash counter names."></textarea>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-tx-modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Transaction</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- ADD DONOR MODAL -->
+  <dialog id="modal-donor" class="glass-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>New Donor Profile</h3>
+        <button class="btn-close-modal" id="btn-close-donor-modal">&times;</button>
+      </div>
+      <form id="donor-form">
+        <div class="form-group">
+          <label for="d-name">Full Name</label>
+          <input type="text" id="d-name" placeholder="e.g. Dr. Majid Khan" required>
+        </div>
+
+        <div class="form-group">
+          <label for="d-address">UK Address</label>
+          <textarea id="d-address" rows="2" placeholder="e.g. 15 South Road, Bristol, BS4 2ND" required></textarea>
+        </div>
+
+        <div class="form-group checkbox-container">
+          <label for="d-giftaid">
+            <input type="checkbox" id="d-giftaid" checked> Gift Aid Declaration Signed
+          </label>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-donor-modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Donor</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- JUMMAH QUICK LOG MODAL -->
+  <dialog id="modal-jummah" class="glass-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Jummah Cash Collection Log</h3>
+        <button class="btn-close-modal" id="btn-close-jummah-modal">&times;</button>
+      </div>
+      <form id="jummah-form">
+        <div class="form-group">
+          <label for="j-date">Jummah Date</label>
+          <input type="date" id="j-date" required>
+        </div>
+
+        <div class="form-row-2">
+          <div class="form-group">
+            <label for="j-amount">Total Cash Counted (£)</label>
+            <input type="number" id="j-amount" min="0.01" step="0.01" placeholder="0.00" required>
+          </div>
+          <div class="form-group">
+            <label for="j-fund">Primary Fund Bucket</label>
+            <select id="j-fund">
+              <option value="Lillah">Lillah (Unrestricted)</option>
+              <option value="Sadaqah Jariyah">Sadaqah Jariyah (Unrestricted)</option>
+              <option value="Building Fund">Building Fund</option>
+              <option value="Zakat">Zakat (Restricted)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row-2">
+          <div class="form-group">
+            <label for="j-counter1">Counter 1 Name</label>
+            <input type="text" id="j-counter1" placeholder="Committee Member A" required>
+          </div>
+          <div class="form-group">
+            <label for="j-counter2">Counter 2 Name</label>
+            <input type="text" id="j-counter2" placeholder="Committee Member B" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="j-upload">Photo of Signed Counting Slip (Mandatory)</label>
+          <input type="file" id="j-upload" accept="image/*" required>
+          <div id="j-upload-preview" class="upload-preview-thumb"></div>
+        </div>
+
+        <p class="form-info-text">Note: Submitting logs this collection as "Cash on Hand". It must be updated to "Banked" once deposited at the bank.</p>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-jummah-modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Log Jummah Collection</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+  
+  <script src="app.js"></script>
+</body>
+</html>
