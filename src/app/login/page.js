@@ -6,52 +6,51 @@ import { useRouter } from 'next/navigation';
 export default function Login() {
   const router = useRouter();
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('password123');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [org, setOrg] = useState({
+    name: 'Masjid Accounting',
+    short_name: 'Masjid',
+    tagline: 'Islamic Financial Management System'
+  });
 
-  // Seeds profiles for quick select
-  const profiles = [
-    { name: "🕌 Financial Secretary (Admin)", email: "secretary@bsmc.org.uk", id: "user-sec-1", role: "ADMIN" },
-    { name: "👥 Trustee Board Member (Reviewer)", email: "trustee@bsmc.org.uk", id: "user-tru-2", role: "REVIEWER" },
-    { name: "🔍 External Auditor (Accountant)", email: "auditor@bsmc.org.uk", id: "user-aud-3", role: "AUDITOR" }
-  ];
+  useEffect(() => {
+    fetch('/api/organisation')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.name) {
+          setOrg(data);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
-    // Match profile
-    const matchedProfile = profiles.find(p => p.email === email.trim().toLowerCase());
-    
-    if (!matchedProfile) {
-      setError("Unknown user email. Please select a seeded profile below for simulation.");
-      return;
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Authentication failed. Please check your credentials.');
+      }
+
+      router.push('/');
+      router.refresh();
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
     }
-
-    if (password !== 'password123') {
-      setError("Invalid password. Use 'password123' for simulation.");
-      return;
-    }
-
-    // Set cookie session (max-age 1 day)
-    document.cookie = `bsmc_session=${encodeURIComponent(JSON.stringify({
-      id: matchedProfile.id,
-      email: matchedProfile.email,
-      role: matchedProfile.role
-    }))}; path=/; max-age=86400;`;
-
-    // Write fallback localStorage indicator
-    localStorage.setItem("bsmc-role", matchedProfile.role === 'ADMIN' ? 'secretary' : matchedProfile.role === 'REVIEWER' ? 'trustee' : 'auditor');
-
-    // Route to dashboard
-    router.push('/');
-    router.refresh();
-  };
-
-  const handleQuickSelect = (p) => {
-    setEmail(p.email);
-    setPassword('password123');
-    setError('');
   };
 
   return (
@@ -61,80 +60,91 @@ export default function Login() {
       justifyContent: 'center',
       minHeight: '100vh',
       backgroundColor: 'var(--bg-primary)',
-      padding: '20px'
+      padding: '24px'
     }}>
-      <div className="glass-card" style={{ maxWidth: '440px', width: '100%', padding: '40px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <svg viewBox="0 0 24 24" width="48" height="48" style={{ margin: '0 auto 16px auto', display: 'block' }}>
-            <rect width="24" height="24" rx="6" fill="url(#login-grad)" />
-            <path d="M12 4L4 9L12 14L20 9L12 4Z" fill="white" />
-            <path d="M4 14L12 19L20 14" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M12 9V14" stroke="#4f46e5" strokeWidth="2" />
-            <defs>
-              <linearGradient id="login-grad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
-                <stop stopColor="#10b981" />
-                <stop offset="1" stopColor="#059669" />
-              </linearGradient>
-            </defs>
-          </svg>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
-            BSMC Finance Portal
-          </h2>
-          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            Bristol South Muslim Community Ledger
+      <div className="glass-card" style={{ maxWidth: '440px', width: '100%', padding: '40px 32px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '56px', height: '56px', borderRadius: '14px', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', boxShadow: '0 8px 24px -4px rgba(16, 185, 129, 0.4)', marginBottom: '16px' }}>
+            <svg viewBox="0 0 24 24" width="30" height="30" fill="none">
+              <path d="M12 3L3 8.5L12 14L21 8.5L12 3Z" fill="white" />
+              <path d="M3 13.5L12 19L21 13.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M12 8.5V14" stroke="#047857" strokeWidth="2" />
+            </svg>
+          </div>
+          <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.65rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px', margin: 0 }}>
+            {org.name}
+          </h1>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
+            {org.tagline || 'Financial Management System'}
           </p>
         </div>
 
         {error && (
-          <div className="alert alert-warning" style={{ marginBottom: '20px', fontSize: '0.8rem', padding: '10px 14px' }}>
+          <div className="alert alert-warning" style={{ marginBottom: '20px', fontSize: '0.85rem', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>⚠️</span>
             <span>{error}</span>
           </div>
         )}
 
         <form onSubmit={handleLogin}>
-          <div className="form-group">
-            <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Email Address</label>
+          <div className="form-group" style={{ marginBottom: '18px' }}>
+            <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '6px', color: 'var(--text-secondary)' }}>
+              Email Address
+            </label>
             <input 
               type="email" 
-              placeholder="e.g. secretary@bsmc.org.uk" 
+              placeholder="e.g. secretary@yourmasjid.org.uk" 
               value={email} 
               onChange={e => setEmail(e.target.value)} 
               required 
+              autoFocus
+              style={{ width: '100%' }}
             />
           </div>
 
-          <div className="form-group">
-            <label style={{ fontSize: '0.8rem', fontWeight: 600 }}>Password</label>
+          <div className="form-group" style={{ marginBottom: '22px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                Password
+              </label>
+              <button 
+                type="button" 
+                onClick={() => setShowPassword(!showPassword)}
+                style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.75rem', cursor: 'pointer', padding: 0 }}
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
+            </div>
             <input 
-              type="password" 
-              placeholder="••••••••" 
+              type={showPassword ? "text" : "password"} 
+              placeholder="Enter your password" 
               value={password} 
               onChange={e => setPassword(e.target.value)} 
               required 
+              style={{ width: '100%' }}
             />
           </div>
 
-          <button type="submit" className="btn btn-primary btn-block" style={{ marginTop: '10px' }}>
-            🔒 Authenticate Securely
+          <button 
+            type="submit" 
+            className="btn btn-primary btn-block" 
+            disabled={loading}
+            style={{ padding: '12px', fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+          >
+            {loading ? (
+              <span>Authenticating...</span>
+            ) : (
+              <>
+                <span>🔒</span>
+                <span>Sign In Securely</span>
+              </>
+            )}
           </button>
         </form>
 
-        <div className="form-divider" style={{ margin: '24px 0' }}>Simulated Accounts</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {profiles.map(p => (
-            <button 
-              key={p.id} 
-              type="button" 
-              className="btn btn-secondary btn-sm btn-block" 
-              onClick={() => handleQuickSelect(p)}
-              style={{ justifyContent: 'flex-start', textAlign: 'left', padding: '10px 14px', fontSize: '0.8rem' }}
-            >
-              <div>
-                <strong>{p.name}</strong>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{p.email}</div>
-              </div>
-            </button>
-          ))}
+        <div style={{ marginTop: '24px', padding: '14px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          <strong style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>🛡️ Self-Hosted Security</strong>
+          All ledger sessions are protected via cryptographically signed tokens and strict server-side permissions. Default initial admin: <code style={{ color: 'var(--primary)' }}>secretary@bsmc.org.uk</code>
         </div>
       </div>
     </div>

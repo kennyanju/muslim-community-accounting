@@ -1,0 +1,19 @@
+services:
+  masjid-accounting:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: masjid-accounting
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - SESSION_SECRET=change-this-secret-key-to-something-random-and-secure
+    volumes:
+      # Persist data across container upgrades
+      - masjid-data:/app/src/data
+
+volumes:
+  masjid-data:
+    driver: local

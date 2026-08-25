@@ -1,59 +1,71 @@
-# Majid Accounting: BSMC Financial Management System (Next.js & Supabase Rebuild)
+# 🕌 Masjid Accounting — Islamic Financial Management System
 
-This is the Next.js and Supabase-aligned financial management system for the **Bristol South Muslim Community (BSMC)**, following the Architecture Design Document (ADD) and Backend Implementation Guide.
+An open-source, Shariah-compliant financial accounting system and ledger built specifically for **UK Mosques, Islamic Centres, and Charities**.
 
-The system features a **Backend-for-Frontend (BFF)** layer via Next.js App Router API routes, simulated PostgreSQL database triggers, ACID transactional compliance, Row-Level Security (RLS) policies, and UK Charity Commission & HMRC Gift Aid claims integration.
-
----
-
-## 🕌 Architecture & Module Boundaries
-
-The project is structured into five core boundaries:
-1. **Identity & Access Management (IAM)**: Governs role-based logins (Admin/Secretary, Reviewer/Trustee, Auditor) and checks write permissions before executing mutations.
-2. **Ledger & Transaction Module**: Logs cash, bank transfers, and direct debit transactions, and links them to specific donor profiles. Enforces atomic splits.
-3. **Fund Management Module**: Dynamic tracking of balances across Restricted (Zakat, Fitrana) and Unrestricted (Lillah, Sadaqah Jariyah, Building Fund, Madrasah Fees) accounts.
-4. **Donor & Gift Aid Module**: Validates UK address profiles and Gift Aid signed declarations, flagging claims automatically.
-5. **Reporting & Export Module**: Renders Profit & Loss summaries and generates HMRC-compatible Gift Aid Claim CSV schedules.
+Designed for self-hosting with zero external cloud dependencies, built-in ACID database simulation with PostgreSQL parity, Role-Based Access Control (RBAC), and UK Charity Commission & HMRC Gift Aid claims integration.
 
 ---
 
-## ⚙️ Backend triggers & compliance rules (Supabase Mock)
+## ✨ Key Features
 
-To run the application locally without requiring a live Supabase project setup, a server-side PostgreSQL simulator is implemented in `src/lib/db.js` reading/writing to `src/data/db.json`. This simulates actual database triggers:
-
-*   **Fund Segregation (Rule 1)**: Any `EXPENSE` transaction where splits map operational expenses (e.g. `Mosque Utilities`, `Maintenance`, `Imam Salary`) to Zakat or Fitrana is rejected with a compliance trigger exception.
-*   **Audit Trail (Rule 2)**: Physical deletions are disabled. The controller intercepts deletes and soft-voids transactions to preserve financial audit trails.
-*   **Gift Aid Validator (Rule 3)**: Income transactions only claim Gift Aid if linked to a donor with a signed declaration and UK address.
-*   **Riba Routing (Rule 4)**: Interest category incomes are automatically routed to the restricted `Interest/Riba` fund.
+- **🏛️ Multi-Organisation Self-Hosting:** Any UK Mosque or Islamic Centre can self-host and customize their name, address, Charity Commission registration number, currency, and branding directly via the settings UI.
+- **⚖️ Islamic Fund Segregation:** Built-in segregated wallets for **Restricted** (Zakat, Fitrana, Riba) and **Unrestricted** (Lillah, Sadaqah Jariyah, Building Fund, Madrasah Fees) funds.
+- **🛡️ Shariah Compliance Triggers:**
+  - Blocks operational expenses (utilities, maintenance, salaries) from drawing on Zakat or Fitrana funds.
+  - Automatically routes unlawful bank interest into a dedicated **Interest/Riba** wallet for disposal without reward.
+  - Requires mandatory beneficiary (*Asnaf*) audit notes on Zakat disbursements.
+- **🇬🇧 HMRC Gift Aid Schedule Exporter:** Generates ready-to-submit HMRC Gift Aid Claim CSV schedules (calculating the 25% tax rebate) for donors with verified UK postcodes and declarations.
+- **🕌 Jummah Cash Management:** Log Friday cash collections with dual witness counter signatures, tracking Cash on Hand and Banked status.
+- **🧾 Branded Receipt & Invoice Generator:** Create, customize, and print official donation receipts linked directly to ledger transactions.
+- **🔐 Cryptographic Security & RBAC:** Scrypt password hashing, tamper-proof HMAC session tokens, and strict Role-Based Access Control (Financial Secretary / Trustee / Auditor).
+- **💾 1-Click Backup & Restore:** Instant JSON database snapshot exports and restore tools for complete disaster recovery.
 
 ---
 
-## 🚀 Running the App Locally
+## 🚀 Quickstart (Docker & Local)
 
-### 1. Install Dependencies
+### 1. Using Docker Compose (Recommended for Production)
 ```sh
-npm install
-```
-
-### 2. Launch Development Server
-```sh
-npm run dev
+git clone https://github.com/kennyanju/majid-accounting.git
+cd majid-accounting
+docker compose up -d --build
 ```
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### 3. Run Automated Compliance Tests
-A test suite is available to verify database constraints:
+### 2. Running with Node.js
+```sh
+npm install
+npm run build
+npm start
+```
+For development:
+```sh
+npm run dev
+```
+
+### 3. Run Automated Compliance & Security Tests
+Verify all Shariah triggers, RBAC rules, and crypto modules:
 ```sh
 node src/lib/test_compliance.js
 ```
 
 ---
 
-## 🌐 API Routes Contracts
+## 🔑 Initial Default Login
 
-*   `GET/POST /api/transactions` - Fetch transactions with filters or create atomic transactions with splits.
-*   `POST /api/transactions/[id]/void` - Voids transactions and updates the audit log.
-*   `GET /api/funds/balances` - Calculates balances for all funds dynamically.
-*   `GET /api/reports/giftaid` - Exports HMRC formatted Gift Aid claims schedule (CSV format).
-*   `GET/POST /api/donors` - Fetch and register donors.
-*   `GET /api/audits` - Reads immutable administrative logs.
+- **Email:** `secretary@bsmc.org.uk`
+- **Password:** `password123`
+
+*Change this password immediately in **Settings & Admin &rarr; User Accounts** after first login.*
+
+---
+
+## 📖 Complete Self-Hosting Guide
+
+For in-depth deployment instructions (Docker, PM2, Ubuntu server, cron backups, and charity compliance), see **[SELF_HOSTING.md](./SELF_HOSTING.md)**.
+
+---
+
+## 📜 License
+
+MIT License. Free to use, adapt, and deploy for all Mosques and charitable organisations.

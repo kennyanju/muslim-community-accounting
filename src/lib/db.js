@@ -1,24 +1,62 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { hashPassword } from './auth.js';
 
 const dbPath = path.join(process.cwd(), 'src/data/db.json');
+
+const DEFAULT_ORGANISATION = {
+  name: 'Bristol South Muslim Community',
+  short_name: 'BSMC',
+  tagline: 'Bristol South Mosque & Islamic Centre',
+  charity_number: '1234567',
+  address: '100 Mosque Road, Bristol, BS3 1AB',
+  email: 'finance@bsmc.org.uk',
+  phone: '0117 000 0000',
+  currency_symbol: '£',
+  country: 'United Kingdom'
+};
 
 // Helper to read database
 export function readDB() {
   try {
     const raw = fs.readFileSync(dbPath, 'utf8');
-    return JSON.parse(raw);
+    const data = JSON.parse(raw);
+    
+    // Ensure default structure
+    if (!data.organisation) {
+      data.organisation = DEFAULT_ORGANISATION;
+    }
+    if (!data.users) data.users = [];
+    if (!data.funds) data.funds = [];
+    if (!data.donors) data.donors = [];
+    if (!data.transactions) data.transactions = [];
+    if (!data.transaction_splits) data.transaction_splits = [];
+    if (!data.audit_logs) data.audit_logs = [];
+    if (!data.receipt_counter) data.receipt_counter = 1;
+
+    return data;
   } catch (err) {
-    console.error("Failed to read JSON db, returning empty state:", err);
-    return { users: [], funds: [], donors: [], transactions: [], transaction_splits: [], audit_logs: [] };
+    console.error("Failed to read JSON db, returning default state:", err);
+    return { 
+      organisation: DEFAULT_ORGANISATION,
+      users: [], 
+      funds: [], 
+      donors: [], 
+      transactions: [], 
+      transaction_splits: [], 
+      audit_logs: [],
+      receipt_counter: 1
+    };
   }
 }
 
-// Helper to write database
+// Helper to write database safely via temporary file rename to prevent race condition corruption
 export function writeDB(data) {
   try {
-    fs.writeFileSync(dbPath, JSON.stringify(data, null, 2), 'utf8');
+    const tempPath = `${dbPath}.tmp.${Date.now()}.${Math.random().toString(36).substring(2, 6)}`;
+    fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), 'utf8');
+    fs.renameSync(tempPath, dbPath);
     return true;
   } catch (err) {
     console.error("Failed to write to JSON db:", err);
@@ -26,7 +64,7 @@ export function writeDB(data) {
   }
 }
 
-// Core DB operations mirroring Supabase PostgreSQL Triggers and RPCs
+// Core DB operations mirroring PostgreSQL triggers, ACID operations, and audit rules
 export class DatabaseController {
   constructor(userRole = 'ADMIN', userId = 'user-sec-1') {
     this.userRole = userRole; // ADMIN, REVIEWER, AUDITOR
@@ -40,7 +78,189 @@ export class DatabaseController {
     }
   }
 
-  // Get fund balances (SQL View: fund_balances)
+  // -------------------------------------------------------------
+  // ORGANISATION SETTINGS
+  // -------------------------------------------------------------
+  getOrganisation() {
+    const db = readDB();
+    return db.organisation || DEFAULT_ORGANISATION;
+  }
+
+  updateOrganisation(newOrgData) {
+    this.checkAdmin();
+    const db = readDB();
+    
+    db.organisation = {
+      ...DEFAULT_ORGANISATION,
+      ...(db.organisation || {}),
+      ...newOrgData
+    };
+
+    db.audit_logs.unshift({
+      id: `log-${crypto.randomUUID().substring(0, 8)}`,
+      table_name: 'organisation',
+      record_id: 'settings',
+      action: 'UPDATE',
+      user_id: this.userId,
+      timestamp: new Date().toISOString()
+    });
+
+    writeDB(db);
+    return db.organisation;
+  }
+
+  // -------------------------------------------------------------
+  // FUND MANAGEMENT
+  // -------------------------------------------------------------
+  getFunds() {
+    const db = readDB();
+    return db.funds;
+  }
+
+  createFund({ name, is_restricted, description = '' }) {
+    this.checkAdmin();
+    if (!name || !name.trim()) throw new Error("Fund name is required.");
+
+    const db = readDB();
+    const existing = db.funds.find(f => f.name.toLowerCase() === name.trim().toLowerCase());
+    if (existing) {
+      throw new Error(`A fund named "${name}" already exists.`);
+    }
+
+    const fundId = `fund-${name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')}-${crypto.randomUUID().substring(0, 4)}`;
+    const newFund = {
+      id: fundId,
+      name: name.trim(),
+      is_restricted: !!is_restricted,
+      description: description.trim(),
+      is_archived: false,
+      created_at: new Date().toISOString()
+    };
+
+    db.funds.push(newFund);
+
+    db.audit_logs.unshift({
+      id: `log-${crypto.randomUUID().substring(0, 8)}`,
+      table_name: 'funds',
+      record_id: fundId,
+      action: 'INSERT',
+      user_id: this.userId,
+      timestamp: new Date().toISOString()
+    });
+
+    writeDB(db);
+    return newFund;
+  }
+
+  updateFund(id, { name, is_restricted, is_archived, description }) {
+    this.checkAdmin();
+    const db = readDB();
+    const fund = db.funds.find(f => f.id === id);
+    if (!fund) throw new Error("Fund not found");
+
+    // Protect core Shariah-specific funds from dangerous reclassification
+    if (fund.name === 'Interest/Riba' && is_restricted === false) {
+      throw new Error("The Interest/Riba fund must remain classified as Restricted.");
+    }
+    if ((fund.name === 'Zakat' || fund.name === 'Fitrana') && is_restricted === false) {
+      throw new Error("Zakat and Fitrana funds must remain classified as Restricted under Shariah compliance rules.");
+    }
+
+    if (name && name.trim()) fund.name = name.trim();
+    if (is_restricted !== undefined) fund.is_restricted = !!is_restricted;
+    if (is_archived !== undefined) fund.is_archived = !!is_archived;
+    if (description !== undefined) fund.description = description.trim();
+
+    db.audit_logs.unshift({
+      id: `log-${crypto.randomUUID().substring(0, 8)}`,
+      table_name: 'funds',
+      record_id: id,
+      action: 'UPDATE',
+      user_id: this.userId,
+      timestamp: new Date().toISOString()
+    });
+
+    writeDB(db);
+    return fund;
+  }
+
+  // -------------------------------------------------------------
+  // USER MANAGEMENT
+  // -------------------------------------------------------------
+  getUsers() {
+    const db = readDB();
+    // Return users without exposing password hashes
+    return db.users.map(({ password_hash, ...rest }) => rest);
+  }
+
+  createUser({ email, password, role, name }) {
+    this.checkAdmin();
+    if (!email || !email.trim()) throw new Error("User email is required.");
+    if (!password || password.length < 6) throw new Error("Password must be at least 6 characters.");
+    if (!['ADMIN', 'REVIEWER', 'AUDITOR'].includes(role)) throw new Error("Invalid role specified.");
+
+    const db = readDB();
+    const existing = db.users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+    if (existing) throw new Error(`User with email "${email}" already exists.`);
+
+    const userId = `user-${role.substring(0, 3).toLowerCase()}-${crypto.randomUUID().substring(0, 6)}`;
+    const newUser = {
+      id: userId,
+      email: email.trim().toLowerCase(),
+      name: (name && name.trim()) || email.split('@')[0],
+      role,
+      status: 'ACTIVE',
+      password_hash: hashPassword(password),
+      created_at: new Date().toISOString()
+    };
+
+    db.users.push(newUser);
+
+    db.audit_logs.unshift({
+      id: `log-${crypto.randomUUID().substring(0, 8)}`,
+      table_name: 'users',
+      record_id: userId,
+      action: 'INSERT',
+      user_id: this.userId,
+      timestamp: new Date().toISOString()
+    });
+
+    writeDB(db);
+    const { password_hash, ...safeUser } = newUser;
+    return safeUser;
+  }
+
+  updateUser(id, { name, role, status, password }) {
+    this.checkAdmin();
+    const db = readDB();
+    const user = db.users.find(u => u.id === id);
+    if (!user) throw new Error("User not found");
+
+    if (name) user.name = name.trim();
+    if (role && ['ADMIN', 'REVIEWER', 'AUDITOR'].includes(role)) user.role = role;
+    if (status && ['ACTIVE', 'INACTIVE'].includes(status)) user.status = status;
+    if (password && password.trim()) {
+      if (password.length < 6) throw new Error("Password must be at least 6 characters.");
+      user.password_hash = hashPassword(password);
+    }
+
+    db.audit_logs.unshift({
+      id: `log-${crypto.randomUUID().substring(0, 8)}`,
+      table_name: 'users',
+      record_id: id,
+      action: 'UPDATE',
+      user_id: this.userId,
+      timestamp: new Date().toISOString()
+    });
+
+    writeDB(db);
+    const { password_hash, ...safeUser } = user;
+    return safeUser;
+  }
+
+  // -------------------------------------------------------------
+  // FUND BALANCES VIEW
+  // -------------------------------------------------------------
   getBalances() {
     const db = readDB();
     const balancesMap = {};
@@ -51,6 +271,7 @@ export class DatabaseController {
         fundId: f.id,
         fundName: f.name,
         isRestricted: f.is_restricted,
+        isArchived: !!f.is_archived,
         balance: 0
       };
     });
@@ -60,8 +281,6 @@ export class DatabaseController {
       if (tx.status === 'VOIDED' || tx.status === 'FAILED') return;
       
       const isIncome = tx.type === 'INCOME';
-      
-      // Get splits for this transaction
       const splits = db.transaction_splits.filter(s => s.transaction_id === tx.id);
       
       splits.forEach(split => {
@@ -75,31 +294,55 @@ export class DatabaseController {
     return Object.values(balancesMap);
   }
 
-  // Atomic PostgreSQL Transaction creation (BFF Wrapper for RPC: create_full_transaction)
+  // -------------------------------------------------------------
+  // TRANSACTIONS
+  // -------------------------------------------------------------
   createTransaction(payload) {
     this.checkAdmin();
     
     const db = readDB();
-    const { type, status, method, totalAmount, date, donorId, receiptUrl, reference_note, splits, giftAid, notes } = payload;
+    const { 
+      type, 
+      status, 
+      method, 
+      totalAmount, 
+      date, 
+      donorId, 
+      receiptUrl, 
+      reference_note, 
+      category, 
+      splits, 
+      giftAid, 
+      notes 
+    } = payload;
     
     const splitTotal = splits.reduce((sum, split) => sum + parseFloat(split.amount), 0);
     if (Math.abs(splitTotal - parseFloat(totalAmount)) > 0.01) {
-      throw new Error(`Splits total (${splitTotal}) does not match transaction total (${totalAmount})`);
+      throw new Error(`Splits total (${splitTotal.toFixed(2)}) does not match transaction total (${parseFloat(totalAmount).toFixed(2)})`);
     }
 
-    // 1. Database Trigger: check_restricted_fund_usage()
+    // 1. Database Trigger: check_restricted_fund_usage() (Rule 1)
     if (type === 'EXPENSE') {
       const isOpExpense = (
-        reference_note.toLowerCase().includes('utility') || 
-        reference_note.toLowerCase().includes('maintenance') || 
-        reference_note.toLowerCase().includes('salary')
+        (reference_note && (
+          reference_note.toLowerCase().includes('utility') || 
+          reference_note.toLowerCase().includes('maintenance') || 
+          reference_note.toLowerCase().includes('bill') ||
+          reference_note.toLowerCase().includes('salary')
+        )) ||
+        (category && (
+          category.toLowerCase().includes('utilities') ||
+          category.toLowerCase().includes('salaries') ||
+          category.toLowerCase().includes('maintenance') ||
+          category.toLowerCase().includes('office')
+        ))
       );
       
       splits.forEach(split => {
         const fund = db.funds.find(f => f.id === split.fund_id);
         if (fund && fund.is_restricted && (fund.name === 'Zakat' || fund.name === 'Fitrana')) {
           if (isOpExpense) {
-            throw new Error(`Strict Compliance Violation: Cannot use restricted funds (Zakat/Fitrana) for operational expenses (${reference_note}).`);
+            throw new Error(`Strict Compliance Violation: Cannot use restricted funds (Zakat/Fitrana) for operational expenses (${reference_note || category}).`);
           }
         }
       });
@@ -113,7 +356,7 @@ export class DatabaseController {
       });
     }
 
-    // 2. Gift Aid Constraint: Rule 3
+    // 2. Gift Aid Constraint (Rule 3)
     if (type === 'INCOME' && giftAid) {
       const donor = db.donors.find(d => d.id === donorId);
       if (!donor || !donor.gift_aid_eligible || !donor.address_line_1 || !donor.postcode) {
@@ -121,19 +364,18 @@ export class DatabaseController {
       }
     }
 
-    // 3. Force interest (Riba) category to Interest/Riba fund: Rule 4
+    // 3. Force interest (Riba) category to Interest/Riba fund (Rule 4)
     let finalSplits = [...splits];
-    if (type === 'INCOME' && reference_note === 'Interest') {
+    if (type === 'INCOME' && (reference_note === 'Interest' || category === 'Interest')) {
       const ribaFund = db.funds.find(f => f.name === 'Interest/Riba');
       if (ribaFund) {
-        finalSplits = [{ fund_id: ribaFund.id, amount: totalAmount }];
+        finalSplits = [{ fund_id: ribaFund.id, amount: parseFloat(totalAmount) }];
       }
     }
 
-    // Generate UUID
+    // Generate Transaction ID
     const txId = `tx-${crypto.randomUUID().substring(0, 8)}`;
     
-    // Insert parent transaction
     const newTx = {
       id: txId,
       type: type.toUpperCase(),
@@ -144,6 +386,7 @@ export class DatabaseController {
       donor_id: donorId || 'anonymous',
       receipt_url: receiptUrl || '',
       reference_note: reference_note || 'Donation',
+      category: category || (type === 'INCOME' ? 'Donation' : 'Other'),
       created_by: this.userId,
       reconciled: false,
       notes: notes || '',
@@ -176,9 +419,12 @@ export class DatabaseController {
     return txId;
   }
 
-  // Void Transaction
+  // Void Transaction without destroying original reference_note
   voidTransaction(id, reason) {
     this.checkAdmin();
+    if (!reason || !reason.trim()) {
+      throw new Error("Void reason is mandatory.");
+    }
     
     const db = readDB();
     const tx = db.transactions.find(t => t.id === id);
@@ -191,7 +437,9 @@ export class DatabaseController {
     }
 
     tx.status = 'VOIDED';
-    tx.reference_note = `VOIDED: ${reason}`;
+    tx.void_reason = reason.trim();
+    tx.voided_at = new Date().toISOString();
+    tx.voided_by = this.userId;
 
     db.audit_logs.unshift({
       id: `log-${crypto.randomUUID().substring(0, 8)}`,
@@ -239,7 +487,7 @@ export class DatabaseController {
     if (!tx) throw new Error("Transaction not found");
     
     tx.reconciled = true;
-    if (tx.status === 'PENDING') tx.status = 'BANKED'; // Auto banked
+    if (tx.status === 'PENDING') tx.status = 'BANKED';
     
     db.audit_logs.unshift({
       id: `log-${crypto.randomUUID().substring(0, 8)}`,
@@ -254,33 +502,50 @@ export class DatabaseController {
     return true;
   }
 
-  // Create Donor profile
-  createDonor(name, address, giftAidEligible) {
+  // -------------------------------------------------------------
+  // DONORS
+  // -------------------------------------------------------------
+  createDonor({ name, address, address_line_1, address_line_2, city, postcode, giftAidEligible }) {
     this.checkAdmin();
+    if (!name || !name.trim()) throw new Error("Donor name is required.");
     
     const db = readDB();
     
-    let house = "";
-    let postcode = "";
+    let line1 = address_line_1 || '';
+    let pcode = postcode || '';
+    let donorCity = city || '';
+
+    // Legacy address parser if single string is provided
+    if (!line1 && address && address.trim()) {
+      const parts = address.split(',').map(p => p.trim());
+      line1 = parts[0] || '';
+      pcode = parts.length > 1 ? parts[parts.length - 1] : '';
+      if (parts.length > 2) donorCity = parts[parts.length - 2];
+    }
+
     if (giftAidEligible) {
-      if (!address || !address.trim()) {
-        throw new Error("Address is required for Gift Aid eligible donors.");
+      if (!line1 || !line1.trim()) {
+        throw new Error("Address line 1 is required for Gift Aid eligible donors.");
       }
-      const addressParts = address.split(',');
-      house = addressParts[0].trim();
-      postcode = addressParts.pop().trim();
-      if (!postcode) throw new Error("Postcode is required for Gift Aid eligible donors.");
+      if (!pcode || !pcode.trim()) {
+        throw new Error("Postcode is required for Gift Aid eligible donors.");
+      }
     }
     
     const dId = `don-${crypto.randomUUID().substring(0, 8)}`;
-    db.donors.push({
+    const newDonor = {
       id: dId,
-      name,
+      name: name.trim(),
       is_anonymous: false,
       gift_aid_eligible: !!giftAidEligible,
-      address_line_1: house || address,
-      postcode: postcode || ""
-    });
+      address_line_1: line1.trim(),
+      address_line_2: (address_line_2 || '').trim(),
+      city: donorCity.trim(),
+      postcode: pcode.trim().toUpperCase(),
+      created_at: new Date().toISOString()
+    };
+
+    db.donors.push(newDonor);
     
     db.audit_logs.unshift({
       id: `log-${crypto.randomUUID().substring(0, 8)}`,
@@ -293,5 +558,49 @@ export class DatabaseController {
     
     writeDB(db);
     return dId;
+  }
+
+  // -------------------------------------------------------------
+  // BACKUP & RESTORE
+  // -------------------------------------------------------------
+  exportBackup() {
+    this.checkAdmin();
+    const db = readDB();
+    return db;
+  }
+
+  restoreBackup(backupData) {
+    this.checkAdmin();
+    if (!backupData || typeof backupData !== 'object') {
+      throw new Error("Invalid backup data format.");
+    }
+    if (!Array.isArray(backupData.funds) || !Array.isArray(backupData.transactions)) {
+      throw new Error("Backup file is missing core tables (funds, transactions).");
+    }
+
+    writeDB(backupData);
+
+    const db = readDB();
+    db.audit_logs.unshift({
+      id: `log-${crypto.randomUUID().substring(0, 8)}`,
+      table_name: 'database',
+      record_id: 'full_restore',
+      action: 'RESTORE',
+      user_id: this.userId,
+      timestamp: new Date().toISOString()
+    });
+    writeDB(db);
+    return true;
+  }
+
+  // Next receipt number
+  getNextReceiptNumber(orgShortName = 'MASJID') {
+    const db = readDB();
+    const counter = db.receipt_counter || 1;
+    const year = new Date().getFullYear();
+    const formattedNum = `${orgShortName}-${year}-${String(counter).padStart(4, '0')}`;
+    db.receipt_counter = counter + 1;
+    writeDB(db);
+    return formattedNum;
   }
 }

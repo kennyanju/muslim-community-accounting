@@ -1,14 +1,30 @@
 import { NextResponse } from 'next/server';
 import { readDB } from '@/lib/db';
+import { getAuthenticatedUser } from '@/lib/auth';
 
 export async function GET(request) {
-  const userId = request.headers.get('x-user-id') || 'user-sec-1';
-  const db = readDB();
-  const user = db.users.find(u => u.id === userId);
+  const sessionUser = getAuthenticatedUser(request);
   
-  if (!user) {
+  if (!sessionUser) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const db = readDB();
+  const user = db.users.find(u => u.id === sessionUser.id && u.status !== 'INACTIVE');
   
-  return NextResponse.json({ user });
+  if (!user) {
+    return NextResponse.json({ error: 'User not found or deactivated' }, { status: 401 });
+  }
+
+  const safeUser = {
+    id: user.id,
+    email: user.email,
+    name: user.name || user.email.split('@')[0],
+    role: user.role
+  };
+  
+  return NextResponse.json({ 
+    user: safeUser,
+    organisation: db.organisation
+  });
 }

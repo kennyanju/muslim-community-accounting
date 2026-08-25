@@ -1,21 +1,37 @@
 import { NextResponse } from 'next/server';
 
+const SESSION_COOKIE_NAME = 'masjid_session';
+
 export function middleware(request) {
-  const session = request.cookies.get('bsmc_session');
+  const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME);
+  const token = sessionCookie?.value || sessionCookie;
+  const hasSession = !!token && typeof token === 'string' && token.length > 20;
 
   const { pathname } = request.nextUrl;
 
-  // Paths requiring authentication
-  const isProtectedPath = pathname === '/' || pathname.startsWith('/api/') && !pathname.startsWith('/api/auth');
+  // Public paths that do NOT require authentication
+  const isPublicPath = 
+    pathname === '/login' ||
+    pathname === '/api/auth/login' ||
+    pathname === '/api/auth/logout' ||
+    pathname === '/api/organisation';
 
-  if (isProtectedPath && !session) {
-    // Redirect to login page
+  // If path is API and not public, require session cookie
+  if (pathname.startsWith('/api/')) {
+    if (!isPublicPath && !hasSession) {
+      return NextResponse.json({ error: 'Unauthorized: Authentication required' }, { status: 401 });
+    }
+    return NextResponse.next();
+  }
+
+  // If visiting a protected page without session, redirect to /login
+  if (!isPublicPath && !hasSession) {
     const loginUrl = new URL('/login', request.url);
     return NextResponse.redirect(loginUrl);
   }
 
-  if (pathname === '/login' && session) {
-    // Redirect already authenticated users to dashboard
+  // If authenticated user visits /login, redirect to dashboard /
+  if (pathname === '/login' && hasSession) {
     const dashboardUrl = new URL('/', request.url);
     return NextResponse.redirect(dashboardUrl);
   }
@@ -26,7 +42,7 @@ export function middleware(request) {
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
+     * Match all request paths except for:
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)

@@ -12,8 +12,8 @@ const outfit = Outfit({
 });
 
 export const metadata = {
-  title: 'BSMC Financial Management System',
-  description: 'Islamic compliance and audit-safe accounting ledger for Bristol South Muslim Community.',
+  title: 'Masjid Accounting — Islamic Financial Management System',
+  description: 'Islamic compliance, fund segregation, and audit-safe accounting ledger with UK Charity Commission & HMRC Gift Aid integration.',
 };
 
 export default function RootLayout({ children }) {
@@ -25,7 +25,7 @@ export default function RootLayout({ children }) {
           dangerouslySetInnerHTML={{
             __html: `
               try {
-                const savedTheme = localStorage.getItem("bsmc-theme") || "system";
+                const savedTheme = localStorage.getItem("masjid-theme") || localStorage.getItem("bsmc-theme") || "system";
                 document.documentElement.setAttribute('data-theme', savedTheme);
               } catch (e) {}
             `,

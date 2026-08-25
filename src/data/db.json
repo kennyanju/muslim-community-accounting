@@ -1,56 +1,90 @@
 {
+  "organisation": {
+    "name": "Bristol South Muslim Community",
+    "short_name": "BSMC",
+    "tagline": "Bristol South Mosque & Islamic Centre",
+    "charity_number": "1234567",
+    "address": "100 Mosque Road, Bristol, BS3 1AB",
+    "email": "finance@bsmc.org.uk",
+    "phone": "0117 000 0000",
+    "currency_symbol": "£",
+    "country": "United Kingdom"
+  },
   "users": [
     {
       "id": "user-sec-1",
+      "name": "Financial Secretary",
       "email": "secretary@bsmc.org.uk",
-      "role": "ADMIN"
+      "role": "ADMIN",
+      "status": "ACTIVE",
+      "password_hash": "8788d6f20c3c93c3c5090d70e85cf302:505052521b3dfa9983913b4ebfdbbada8f950134f60b18a609794ae8484ea5ff0b8fa416d922a63cc3d66a3d612192818efd94549620672edfb610372271059d"
     },
     {
       "id": "user-tru-2",
+      "name": "Trustee Board Member",
       "email": "trustee@bsmc.org.uk",
-      "role": "REVIEWER"
+      "role": "REVIEWER",
+      "status": "ACTIVE",
+      "password_hash": "8788d6f20c3c93c3c5090d70e85cf302:505052521b3dfa9983913b4ebfdbbada8f950134f60b18a609794ae8484ea5ff0b8fa416d922a63cc3d66a3d612192818efd94549620672edfb610372271059d"
     },
     {
       "id": "user-aud-3",
+      "name": "Independent Auditor",
       "email": "auditor@bsmc.org.uk",
-      "role": "AUDITOR"
+      "role": "AUDITOR",
+      "status": "ACTIVE",
+      "password_hash": "8788d6f20c3c93c3c5090d70e85cf302:505052521b3dfa9983913b4ebfdbbada8f950134f60b18a609794ae8484ea5ff0b8fa416d922a63cc3d66a3d612192818efd94549620672edfb610372271059d"
     }
   ],
   "funds": [
     {
       "id": "fund-lillah",
       "name": "Lillah",
-      "is_restricted": false
+      "is_restricted": false,
+      "description": "General mosque operations and utility expenses",
+      "is_archived": false
     },
     {
       "id": "fund-zakat",
       "name": "Zakat",
-      "is_restricted": true
+      "is_restricted": true,
+      "description": "Obligatory alms strictly reserved for eligible poor/needy (Asnaf)",
+      "is_archived": false
     },
     {
       "id": "fund-fitrana",
       "name": "Fitrana",
-      "is_restricted": true
+      "is_restricted": true,
+      "description": "Zakat al-Fitr distributed prior to Eid prayer",
+      "is_archived": false
     },
     {
       "id": "fund-sadaqah",
       "name": "Sadaqah Jariyah",
-      "is_restricted": false
+      "is_restricted": false,
+      "description": "Continuous voluntary charity and projects",
+      "is_archived": false
     },
     {
       "id": "fund-building",
       "name": "Building Fund",
-      "is_restricted": false
+      "is_restricted": false,
+      "description": "Mosque expansion, construction, and capital maintenance",
+      "is_archived": false
     },
     {
       "id": "fund-madrasah",
       "name": "Madrasah Fees",
-      "is_restricted": false
+      "is_restricted": false,
+      "description": "Education, books, and Quran classes",
+      "is_archived": false
     },
     {
       "id": "fund-riba",
       "name": "Interest/Riba",
-      "is_restricted": true
+      "is_restricted": true,
+      "description": "Unlawful bank interest to be disposed of without intention of spiritual reward",
+      "is_archived": false
     }
   ],
   "donors": [
@@ -60,6 +94,8 @@
       "is_anonymous": false,
       "gift_aid_eligible": true,
       "address_line_1": "12 Bristol Road",
+      "address_line_2": "",
+      "city": "Bristol",
       "postcode": "BS4 1AA"
     },
     {
@@ -68,6 +104,8 @@
       "is_anonymous": false,
       "gift_aid_eligible": true,
       "address_line_1": "88 South Road",
+      "address_line_2": "Bedminster",
+      "city": "Bristol",
       "postcode": "BS3 2BB"
     },
     {
@@ -76,6 +114,8 @@
       "is_anonymous": false,
       "gift_aid_eligible": false,
       "address_line_1": "34 West Street",
+      "address_line_2": "",
+      "city": "Bristol",
       "postcode": "BS5 8DD"
     },
     {
@@ -84,12 +124,33 @@
       "is_anonymous": true,
       "gift_aid_eligible": false,
       "address_line_1": "",
+      "address_line_2": "",
+      "city": "",
       "postcode": ""
     }
   ],
   "transactions": [
     {
-      "id": "tx-7260310b",
+      "id": "tx-fc453d3f",
+      "type": "INCOME",
+      "status": "VOIDED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 50,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "reference_note": "Original Clean Water Donation",
+      "category": "Donation",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "",
+      "giftAid": false,
+      "void_reason": "Donor requested refund due to duplicate transfer",
+      "voided_at": "2026-08-25T09:29:11.944Z",
+      "voided_by": "user-sec-1"
+    },
+    {
+      "id": "tx-7c3c9f6e",
       "type": "INCOME",
       "status": "BANKED",
       "method": "BANK_TRANSFER",
@@ -98,13 +159,33 @@
       "donor_id": "anonymous",
       "receipt_url": "",
       "reference_note": "Interest",
+      "category": "Interest",
       "created_by": "user-sec-1",
       "reconciled": false,
       "notes": "",
       "giftAid": false
     },
     {
-      "id": "tx-715584b2",
+      "id": "tx-7ce8aefb",
+      "type": "INCOME",
+      "status": "VOIDED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 50,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "reference_note": "Original Clean Water Donation",
+      "category": "Donation",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "",
+      "giftAid": false,
+      "void_reason": "Donor requested refund due to duplicate transfer",
+      "voided_at": "2026-08-25T09:27:24.537Z",
+      "voided_by": "user-sec-1"
+    },
+    {
+      "id": "tx-625727f4",
       "type": "INCOME",
       "status": "BANKED",
       "method": "BANK_TRANSFER",
@@ -113,6 +194,7 @@
       "donor_id": "anonymous",
       "receipt_url": "",
       "reference_note": "Interest",
+      "category": "Interest",
       "created_by": "user-sec-1",
       "reconciled": false,
       "notes": "",
@@ -127,10 +209,12 @@
       "transaction_date": "2026-06-05",
       "donor_id": "anonymous",
       "receipt_url": "",
-      "reference_note": "Donation",
+      "reference_note": "Friday Jummah Cash Collection",
+      "category": "Donation",
       "created_by": "user-sec-1",
       "reconciled": true,
-      "notes": "Counters: Brother Ahmad & Brother Yusef. Deposited on Monday."
+      "notes": "Counters: Brother Ahmad & Brother Yusef. Deposited on Monday.",
+      "giftAid": false
     },
     {
       "id": "tx-2",
@@ -141,7 +225,8 @@
       "transaction_date": "2026-06-06",
       "donor_id": "don-1",
       "receipt_url": "",
-      "reference_note": "Zakat",
+      "reference_note": "Annual Zakat Contribution",
+      "category": "Zakat",
       "created_by": "user-sec-1",
       "reconciled": false,
       "notes": "Direct bank transfer for Zakat fund.",
@@ -156,7 +241,8 @@
       "transaction_date": "2026-06-07",
       "donor_id": "don-2",
       "receipt_url": "",
-      "reference_note": "Donation",
+      "reference_note": "Sadaqah for Clean Water Appeal",
+      "category": "Donation",
       "created_by": "user-sec-1",
       "reconciled": false,
       "notes": "Restricted to water well initiative.",
@@ -172,6 +258,7 @@
       "donor_id": "anonymous",
       "receipt_url": "",
       "reference_note": "Mosque Electric Utilities",
+      "category": "Utilities",
       "created_by": "user-sec-1",
       "reconciled": false,
       "notes": "British Gas electric invoice."
@@ -186,6 +273,7 @@
       "donor_id": "anonymous",
       "receipt_url": "",
       "reference_note": "Charitable Payout to Needy",
+      "category": "Charitable Payout",
       "created_by": "user-sec-1",
       "reconciled": false,
       "notes": "Distribution to eligible beneficiaries (Asnaf: Poor & Needy)."
@@ -200,9 +288,11 @@
       "donor_id": "anonymous",
       "receipt_url": "",
       "reference_note": "Interest",
+      "category": "Interest",
       "created_by": "user-sec-1",
       "reconciled": true,
-      "notes": "Automatically categorized bank interest. To be disposed of without reward."
+      "notes": "Automatically categorized bank interest. To be disposed of without reward.",
+      "giftAid": false
     },
     {
       "id": "tx-7",
@@ -213,10 +303,12 @@
       "transaction_date": "2026-06-12",
       "donor_id": "anonymous",
       "receipt_url": "",
-      "reference_note": "Fitrana Box",
+      "reference_note": "Fitrana Box Cash",
+      "category": "Fitrana",
       "created_by": "user-sec-1",
       "reconciled": false,
-      "notes": "Collected in Fitrana box."
+      "notes": "Collected in Fitrana box.",
+      "giftAid": false
     }
   ],
   "transaction_splits": [
@@ -263,34 +355,78 @@
       "amount": 220
     },
     {
-      "id": "split-de15d055",
-      "transaction_id": "tx-715584b2",
+      "id": "split-bbdb858f",
+      "transaction_id": "tx-625727f4",
       "fund_id": "fund-riba",
       "amount": 45
     },
     {
-      "id": "split-39b8fa55",
-      "transaction_id": "tx-7260310b",
+      "id": "split-fea45ab8",
+      "transaction_id": "tx-7ce8aefb",
+      "fund_id": "fund-lillah",
+      "amount": 50
+    },
+    {
+      "id": "split-50ed36f3",
+      "transaction_id": "tx-7c3c9f6e",
       "fund_id": "fund-riba",
       "amount": 45
+    },
+    {
+      "id": "split-d4ca237c",
+      "transaction_id": "tx-fc453d3f",
+      "fund_id": "fund-lillah",
+      "amount": 50
     }
   ],
   "audit_logs": [
     {
-      "id": "log-7875d492",
+      "id": "log-e9807e2c",
       "table_name": "transactions",
-      "record_id": "tx-7260310b",
-      "action": "INSERT",
+      "record_id": "tx-fc453d3f",
+      "action": "VOID",
       "user_id": "user-sec-1",
-      "timestamp": "2026-06-12T15:30:03.210Z"
+      "timestamp": "2026-08-25T09:29:11.944Z"
     },
     {
-      "id": "log-6e6760db",
+      "id": "log-08d61bbc",
       "table_name": "transactions",
-      "record_id": "tx-715584b2",
+      "record_id": "tx-fc453d3f",
       "action": "INSERT",
       "user_id": "user-sec-1",
-      "timestamp": "2026-06-12T15:21:36.085Z"
+      "timestamp": "2026-08-25T09:29:11.943Z"
+    },
+    {
+      "id": "log-62f9a708",
+      "table_name": "transactions",
+      "record_id": "tx-7c3c9f6e",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "timestamp": "2026-08-25T09:29:11.870Z"
+    },
+    {
+      "id": "log-e2343ed8",
+      "table_name": "transactions",
+      "record_id": "tx-7ce8aefb",
+      "action": "VOID",
+      "user_id": "user-sec-1",
+      "timestamp": "2026-08-25T09:27:24.537Z"
+    },
+    {
+      "id": "log-a07abd64",
+      "table_name": "transactions",
+      "record_id": "tx-7ce8aefb",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "timestamp": "2026-08-25T09:27:24.537Z"
+    },
+    {
+      "id": "log-b2d952eb",
+      "table_name": "transactions",
+      "record_id": "tx-625727f4",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "timestamp": "2026-08-25T09:27:24.460Z"
     },
     {
       "id": "log-1",
@@ -308,5 +444,6 @@
       "user_id": "user-sec-1",
       "timestamp": "2026-06-12T09:15:00.000Z"
     }
-  ]
+  ],
+  "receipt_counter": 1
 }
