@@ -588,6 +588,45 @@ export class DatabaseController {
     return true;
   }
 
+  // Reset database to clean template (drops sample transactions, splits, donors)
+  resetDatabase(keepUsers = true) {
+    this.checkAdmin();
+    const db = readDB();
+    
+    const freshDb = {
+      organisation: db.organisation || DEFAULT_ORGANISATION,
+      users: keepUsers ? db.users : db.users.filter(u => u.id === this.userId),
+      funds: [
+        { id: "fund-lillah", name: "Lillah", is_restricted: false, description: "General mosque operations and utility expenses", is_archived: false },
+        { id: "fund-zakat", name: "Zakat", is_restricted: true, description: "Obligatory alms strictly reserved for eligible poor/needy (Asnaf)", is_archived: false },
+        { id: "fund-fitrana", name: "Fitrana", is_restricted: true, description: "Zakat al-Fitr distributed prior to Eid prayer", is_archived: false },
+        { id: "fund-sadaqah", name: "Sadaqah Jariyah", is_restricted: false, description: "Continuous voluntary charity and projects", is_archived: false },
+        { id: "fund-building", name: "Building Fund", is_restricted: false, description: "Mosque expansion, construction, and capital maintenance", is_archived: false },
+        { id: "fund-madrasah", name: "Madrasah Fees", is_restricted: false, description: "Education, books, and Quran classes", is_archived: false },
+        { id: "fund-riba", name: "Interest/Riba", is_restricted: true, description: "Unlawful bank interest to be disposed of without intention of spiritual reward", is_archived: false }
+      ],
+      donors: [
+        { id: "anonymous", name: "Anonymous Donor", is_anonymous: true, gift_aid_eligible: false, address_line_1: "", address_line_2: "", city: "", postcode: "" }
+      ],
+      transactions: [],
+      transaction_splits: [],
+      audit_logs: [
+        {
+          id: `log-${crypto.randomUUID().substring(0, 8)}`,
+          table_name: 'database',
+          record_id: 'clean_reset',
+          action: 'RESET',
+          user_id: this.userId,
+          timestamp: new Date().toISOString()
+        }
+      ],
+      receipt_counter: 1
+    };
+
+    writeDB(freshDb);
+    return freshDb;
+  }
+
   // Next receipt number
   getNextReceiptNumber(orgShortName = 'MASJID') {
     const db = readDB();

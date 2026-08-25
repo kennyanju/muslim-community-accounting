@@ -628,6 +628,24 @@ export default function Home() {
     reader.readAsText(file);
   };
 
+  const handleResetDatabase = async () => {
+    const confirmReset = window.confirm(
+      "⚠️ DANGER: Are you sure you want to reset the database to a fresh state?\n\nThis will clear all transactions, splits, and sample donors so you can start from scratch. Your login will be preserved.\n\nThis action cannot be undone."
+    );
+    if (!confirmReset) return;
+
+    setSubmitting(true);
+    try {
+      await fetchAPI('/api/backup', { method: 'DELETE' });
+      addToast("Database reset to fresh state. Ready for setup!", "success");
+      fetchData();
+    } catch (err) {
+      addToast(`Reset failed: ${err.message}`, "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // Gift Aid claims CSV export API trigger
   const triggerGiftAidClaimsDownload = () => {
     let url = '/api/reports/giftaid';
@@ -2042,6 +2060,22 @@ export default function Home() {
                         disabled={submitting}
                       >
                         {submitting ? 'Restoring...' : 'Upload & Restore Backup JSON'}
+                      </button>
+                    </div>
+
+                    <div style={{ padding: '20px', borderRadius: '12px', border: '1px solid rgba(239, 68, 68, 0.4)', background: 'rgba(239, 68, 68, 0.06)' }}>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '1rem', color: 'var(--danger)' }}>🗑️ Reset Database (Start from Scratch)</h4>
+                      <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '14px' }}>
+                        Wipes all sample transactions, splits, and donors, leaving a clean ledger ready for your mosque. Your admin login account will be preserved.
+                      </p>
+                      <button 
+                        type="button" 
+                        className="btn btn-primary" 
+                        style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }}
+                        onClick={handleResetDatabase}
+                        disabled={submitting}
+                      >
+                        {submitting ? 'Resetting...' : 'Reset Database to Clean Slate'}
                       </button>
                     </div>
                   </div>

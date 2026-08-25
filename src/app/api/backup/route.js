@@ -49,3 +49,22 @@ export async function POST(request) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }
 }
+
+export async function DELETE(request) {
+  const user = getAuthenticatedUser(request);
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  if (user.role !== 'ADMIN') {
+    return NextResponse.json({ error: 'Forbidden: Admins only' }, { status: 403 });
+  }
+
+  try {
+    const controller = new DatabaseController(user.role, user.id);
+    controller.resetDatabase(true);
+    return NextResponse.json({ success: true, message: 'Database reset to clean state successfully.' });
+  } catch (err) {
+    return NextResponse.json({ error: err.message }, { status: 400 });
+  }
+}
