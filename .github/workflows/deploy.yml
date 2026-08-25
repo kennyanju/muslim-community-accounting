@@ -17,7 +17,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
 
       - name: Install dependencies
@@ -28,10 +28,12 @@ jobs:
 
       - name: Build production Next.js application
         run: npm run build
+        env:
+          NODE_ENV: production
 
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy public --project-name=muslim-community-accounting --branch=main --commit-dirty=true
+          command: pages deploy .next --project-name=muslim-community-accounting --branch=main --commit-dirty=true
