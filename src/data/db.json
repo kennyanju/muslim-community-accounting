@@ -131,6 +131,41 @@
   ],
   "transactions": [
     {
+      "id": "tx-4a07d8e8",
+      "type": "INCOME",
+      "status": "VOIDED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 50,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "reference_note": "Original Clean Water Donation",
+      "category": "Donation",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "",
+      "giftAid": false,
+      "void_reason": "Donor requested refund due to duplicate transfer",
+      "voided_at": "2026-08-25T12:22:41.871Z",
+      "voided_by": "user-sec-1"
+    },
+    {
+      "id": "tx-0907b5ef",
+      "type": "INCOME",
+      "status": "BANKED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 45,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "reference_note": "Interest",
+      "category": "Interest",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "",
+      "giftAid": false
+    },
+    {
       "id": "tx-0b765864",
       "type": "INCOME",
       "status": "VOIDED",
@@ -424,9 +459,45 @@
       "transaction_id": "tx-0b765864",
       "fund_id": "fund-lillah",
       "amount": 50
+    },
+    {
+      "id": "split-d461d9ed",
+      "transaction_id": "tx-0907b5ef",
+      "fund_id": "fund-riba",
+      "amount": 45
+    },
+    {
+      "id": "split-13229d6b",
+      "transaction_id": "tx-4a07d8e8",
+      "fund_id": "fund-lillah",
+      "amount": 50
     }
   ],
   "audit_logs": [
+    {
+      "id": "log-514a1732",
+      "table_name": "transactions",
+      "record_id": "tx-4a07d8e8",
+      "action": "VOID",
+      "user_id": "user-sec-1",
+      "timestamp": "2026-08-25T12:22:41.871Z"
+    },
+    {
+      "id": "log-13a4785b",
+      "table_name": "transactions",
+      "record_id": "tx-4a07d8e8",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "timestamp": "2026-08-25T12:22:41.870Z"
+    },
+    {
+      "id": "log-0c152beb",
+      "table_name": "transactions",
+      "record_id": "tx-0907b5ef",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "timestamp": "2026-08-25T12:22:41.827Z"
+    },
     {
       "id": "log-a6c2fc99",
       "table_name": "transactions",

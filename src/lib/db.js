@@ -6,6 +6,18 @@ import initialDBData from '../data/db.json' with { type: 'json' };
 
 const dbPath = path.join(process.cwd(), 'src/data/db.json');
 
+const DEFAULT_ORGANISATION = initialDBData?.organisation || {
+  name: 'Bristol South Muslim Community',
+  short_name: 'BSMC',
+  tagline: 'Bristol South Mosque & Islamic Centre',
+  charity_number: '1234567',
+  address: '100 Mosque Road, Bristol, BS3 1AB',
+  email: 'finance@bsmc.org.uk',
+  phone: '0117 000 0000',
+  currency_symbol: '£',
+  country: 'United Kingdom'
+};
+
 let inMemoryDB = JSON.parse(JSON.stringify(initialDBData));
 
 // Helper to read database with filesystem and serverless in-memory fallback
