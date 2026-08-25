@@ -17,7 +17,7 @@
       "email": "secretary@bsmc.org.uk",
       "role": "ADMIN",
       "status": "ACTIVE",
-      "password_hash": "8788d6f20c3c93c3c5090d70e85cf302:505052521b3dfa9983913b4ebfdbbada8f950134f60b18a609794ae8484ea5ff0b8fa416d922a63cc3d66a3d612192818efd94549620672edfb610372271059d"
+      "password_hash": "pbkdf2:a1b2c3d4e5f60718:fec6683a628aab00a1d6ae610d10bc024e2df050a297f01458f80989c87578cbda7e267960a84d39e099aead46c0d96a272560a5542d3ccbab9d4df031c19dc7"
     },
     {
       "id": "user-tru-2",
@@ -25,7 +25,7 @@
       "email": "trustee@bsmc.org.uk",
       "role": "REVIEWER",
       "status": "ACTIVE",
-      "password_hash": "8788d6f20c3c93c3c5090d70e85cf302:505052521b3dfa9983913b4ebfdbbada8f950134f60b18a609794ae8484ea5ff0b8fa416d922a63cc3d66a3d612192818efd94549620672edfb610372271059d"
+      "password_hash": "pbkdf2:a1b2c3d4e5f60718:fec6683a628aab00a1d6ae610d10bc024e2df050a297f01458f80989c87578cbda7e267960a84d39e099aead46c0d96a272560a5542d3ccbab9d4df031c19dc7"
     },
     {
       "id": "user-aud-3",
@@ -33,7 +33,7 @@
       "email": "auditor@bsmc.org.uk",
       "role": "AUDITOR",
       "status": "ACTIVE",
-      "password_hash": "8788d6f20c3c93c3c5090d70e85cf302:505052521b3dfa9983913b4ebfdbbada8f950134f60b18a609794ae8484ea5ff0b8fa416d922a63cc3d66a3d612192818efd94549620672edfb610372271059d"
+      "password_hash": "pbkdf2:a1b2c3d4e5f60718:fec6683a628aab00a1d6ae610d10bc024e2df050a297f01458f80989c87578cbda7e267960a84d39e099aead46c0d96a272560a5542d3ccbab9d4df031c19dc7"
     }
   ],
   "funds": [
@@ -130,6 +130,41 @@
     }
   ],
   "transactions": [
+    {
+      "id": "tx-0b765864",
+      "type": "INCOME",
+      "status": "VOIDED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 50,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "reference_note": "Original Clean Water Donation",
+      "category": "Donation",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "",
+      "giftAid": false,
+      "void_reason": "Donor requested refund due to duplicate transfer",
+      "voided_at": "2026-08-25T10:31:02.019Z",
+      "voided_by": "user-sec-1"
+    },
+    {
+      "id": "tx-1af000e0",
+      "type": "INCOME",
+      "status": "BANKED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 45,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "reference_note": "Interest",
+      "category": "Interest",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "",
+      "giftAid": false
+    },
     {
       "id": "tx-fc453d3f",
       "type": "INCOME",
@@ -377,9 +412,45 @@
       "transaction_id": "tx-fc453d3f",
       "fund_id": "fund-lillah",
       "amount": 50
+    },
+    {
+      "id": "split-2ccbc4fa",
+      "transaction_id": "tx-1af000e0",
+      "fund_id": "fund-riba",
+      "amount": 45
+    },
+    {
+      "id": "split-53755158",
+      "transaction_id": "tx-0b765864",
+      "fund_id": "fund-lillah",
+      "amount": 50
     }
   ],
   "audit_logs": [
+    {
+      "id": "log-a6c2fc99",
+      "table_name": "transactions",
+      "record_id": "tx-0b765864",
+      "action": "VOID",
+      "user_id": "user-sec-1",
+      "timestamp": "2026-08-25T10:31:02.019Z"
+    },
+    {
+      "id": "log-4fb6b824",
+      "table_name": "transactions",
+      "record_id": "tx-0b765864",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "timestamp": "2026-08-25T10:31:02.019Z"
+    },
+    {
+      "id": "log-04256c33",
+      "table_name": "transactions",
+      "record_id": "tx-1af000e0",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "timestamp": "2026-08-25T10:31:02.007Z"
+    },
     {
       "id": "log-e9807e2c",
       "table_name": "transactions",

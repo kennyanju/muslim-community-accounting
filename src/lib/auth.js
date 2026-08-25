@@ -5,26 +5,51 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'masjid-accounting-secret-k
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days in seconds
 
 /**
- * Hash a password using scrypt with a random salt
+ * Hash a password using PBKDF2 with a random salt (universally supported across Node and Cloudflare workerd)
  */
 export function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
-  const derivedKey = crypto.scryptSync(password, salt, 64);
-  return `${salt}:${derivedKey.toString('hex')}`;
+  const derivedKey = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512');
+  return `pbkdf2:${salt}:${derivedKey.toString('hex')}`;
 }
 
 /**
  * Verify a plain password against a stored salt:hash string
  */
 export function verifyPassword(password, storedHash) {
-  if (!storedHash) return false;
-  if (!storedHash.includes(':')) {
-    // Backwards compatibility fallback for plain seeded passwords
-    return password === storedHash;
+  if (!storedHash || !password) return false;
+
+  try {
+    // 1. Direct plain text match fallback
+    if (storedHash === password) return true;
+
+    // 2. PBKDF2 format: "pbkdf2:salt:hexKey"
+    if (storedHash.startsWith('pbkdf2:')) {
+      const parts = storedHash.split(':');
+      if (parts.length === 3) {
+        const [, salt, key] = parts;
+        const derivedKey = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512');
+        return crypto.timingSafeEqual(Buffer.from(key, 'hex'), derivedKey);
+      }
+    }
+
+    // 3. Scrypt format: "salt:hexKey"
+    if (storedHash.includes(':')) {
+      const parts = storedHash.split(':');
+      if (parts.length === 2) {
+        const [salt, key] = parts;
+        if (typeof crypto.scryptSync === 'function') {
+          const derivedKey = crypto.scryptSync(password, salt, 64);
+          return crypto.timingSafeEqual(Buffer.from(key, 'hex'), derivedKey);
+        }
+      }
+    }
+
+    return false;
+  } catch (err) {
+    console.error("Password verification error:", err);
+    return false;
   }
-  const [salt, key] = storedHash.split(':');
-  const derivedKey = crypto.scryptSync(password, salt, 64);
-  return crypto.timingSafeEqual(Buffer.from(key, 'hex'), derivedKey);
 }
 
 /**
