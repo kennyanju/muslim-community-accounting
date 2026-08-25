@@ -43,6 +43,47 @@ export function readDB() {
   return inMemoryDB;
 }
 
+// Helper to extract persisted organisation profile from request cookies / headers
+export function getOrganisationFromRequest(request) {
+  let cookieVal = null;
+  
+  if (request) {
+    if (typeof request.cookies?.get === 'function') {
+      const c = request.cookies.get('masjid_org_pref');
+      if (c?.value) cookieVal = c.value;
+    }
+    
+    if (!cookieVal && typeof request.headers?.get === 'function') {
+      const rawCookie = request.headers.get('cookie') || '';
+      const match = rawCookie.match(/(?:^|;\s*)masjid_org_pref=([^;]+)/);
+      if (match) {
+        cookieVal = match[1];
+      }
+    }
+  }
+
+  const db = readDB();
+
+  if (cookieVal) {
+    try {
+      const decoded = JSON.parse(decodeURIComponent(cookieVal));
+      if (decoded && typeof decoded === 'object' && decoded.name) {
+        db.organisation = {
+          ...DEFAULT_ORGANISATION,
+          ...(db.organisation || {}),
+          ...decoded
+        };
+        inMemoryDB.organisation = db.organisation;
+        return db.organisation;
+      }
+    } catch (e) {
+      // Ignore cookie parse error
+    }
+  }
+
+  return db.organisation || DEFAULT_ORGANISATION;
+}
+
 // Helper to write database safely with in-memory caching and optional file sync
 export function writeDB(data) {
   inMemoryDB = data;

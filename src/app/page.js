@@ -134,13 +134,27 @@ export default function Home() {
 
   // 3. Load active session & organisation data
   useEffect(() => {
+    // 1. Optimistic instant load from localStorage
+    try {
+      const cachedOrg = localStorage.getItem('masjid_org_profile');
+      if (cachedOrg) {
+        const parsed = JSON.parse(cachedOrg);
+        if (parsed && parsed.name) {
+          setOrg(parsed);
+        }
+      }
+    } catch (e) {}
+
     fetchAPI('/api/auth/me')
       .then(data => {
         if (data && data.user) {
           setUser(data.user);
         }
-        if (data && data.organisation) {
+        if (data && data.organisation && data.organisation.name) {
           setOrg(data.organisation);
+          try {
+            localStorage.setItem('masjid_org_profile', JSON.stringify(data.organisation));
+          } catch (e) {}
         }
       })
       .catch(err => {
@@ -178,7 +192,12 @@ export default function Home() {
       setFunds(fundsData);
       setBalances(balData);
       setAudits(auditData);
-      if (orgData && orgData.name) setOrg(orgData);
+      if (orgData && orgData.name) {
+        setOrg(orgData);
+        try {
+          localStorage.setItem('masjid_org_profile', JSON.stringify(orgData));
+        } catch (e) {}
+      }
 
       if (user.role === 'ADMIN') {
         const usersData = await fetchAPI('/api/users').catch(() => []);
@@ -586,6 +605,9 @@ export default function Home() {
         body: JSON.stringify(org)
       });
       setOrg(updated);
+      try {
+        localStorage.setItem('masjid_org_profile', JSON.stringify(updated));
+      } catch (e) {}
       addToast("Mosque & organisation profile updated successfully.", "success");
     } catch (err) {
       addToast(err.message, "error");

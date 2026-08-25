@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { readDB } from '@/lib/db';
+import { readDB, getOrganisationFromRequest } from '@/lib/db';
 import { verifyPassword, createSessionToken, buildSessionCookie } from '@/lib/auth';
 
 export async function POST(request) {
@@ -41,10 +41,12 @@ export async function POST(request) {
       role: user.role
     };
 
+    const org = getOrganisationFromRequest(request);
+
     const response = NextResponse.json({
       success: true,
       user: safeUser,
-      organisation: db.organisation
+      organisation: org
     });
 
     response.headers.set('Set-Cookie', cookieHeader);

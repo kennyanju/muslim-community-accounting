@@ -17,11 +17,26 @@ export default function Login() {
   });
 
   useEffect(() => {
+    // 1. Instantly check localStorage for immediate persistence without waiting
+    try {
+      const cachedOrg = localStorage.getItem('masjid_org_profile');
+      if (cachedOrg) {
+        const parsed = JSON.parse(cachedOrg);
+        if (parsed && parsed.name) {
+          setOrg(parsed);
+        }
+      }
+    } catch (e) {}
+
+    // 2. Fetch from server to get edge cookie or latest DB config
     fetch('/api/organisation')
       .then(res => res.json())
       .then(data => {
         if (data && data.name) {
           setOrg(data);
+          try {
+            localStorage.setItem('masjid_org_profile', JSON.stringify(data));
+          } catch (e) {}
         }
       })
       .catch(() => {});
@@ -43,6 +58,12 @@ export default function Login() {
 
       if (!res.ok) {
         throw new Error(data.error || 'Authentication failed. Please check your credentials.');
+      }
+
+      if (data && data.organisation && data.organisation.name) {
+        try {
+          localStorage.setItem('masjid_org_profile', JSON.stringify(data.organisation));
+        } catch (e) {}
       }
 
       router.push('/');

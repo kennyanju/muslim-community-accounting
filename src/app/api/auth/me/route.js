@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { readDB } from '@/lib/db';
+import { readDB, getOrganisationFromRequest } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
 
 export async function GET(request) {
@@ -23,8 +23,10 @@ export async function GET(request) {
     role: user.role
   };
   
+  const org = getOrganisationFromRequest(request);
+  
   return NextResponse.json({ 
     user: safeUser,
-    organisation: db.organisation
+    organisation: org
   });
 }

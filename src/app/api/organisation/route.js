@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { DatabaseController, readDB } from '@/lib/db';
+import { DatabaseController, getOrganisationFromRequest } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
 
 export async function GET(request) {
-  const db = readDB();
-  return NextResponse.json(db.organisation || {});
+  const org = getOrganisationFromRequest(request);
+  return NextResponse.json(org);
 }
 
 export async function PUT(request) {
@@ -21,7 +21,18 @@ export async function PUT(request) {
     const body = await request.json();
     const controller = new DatabaseController(user.role, user.id);
     const updated = controller.updateOrganisation(body);
-    return NextResponse.json(updated);
+
+    const response = NextResponse.json(updated);
+    // Set 1-year persistent cookie so organisation settings survive edge cold-starts and logouts
+    const cookieVal = encodeURIComponent(JSON.stringify(updated));
+    response.cookies.set('masjid_org_pref', cookieVal, {
+      path: '/',
+      maxAge: 31536000, // 1 year in seconds
+      sameSite: 'lax',
+      httpOnly: false
+    });
+
+    return response;
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }

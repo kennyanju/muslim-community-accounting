@@ -44,7 +44,18 @@ export async function POST(request) {
     const backupData = await request.json();
     const controller = new DatabaseController(user.role, user.id);
     controller.restoreBackup(backupData);
-    return NextResponse.json({ success: true, message: 'Database restored successfully.' });
+
+    const response = NextResponse.json({ success: true, message: 'Database restored successfully.' });
+    if (backupData.organisation && backupData.organisation.name) {
+      const cookieVal = encodeURIComponent(JSON.stringify(backupData.organisation));
+      response.cookies.set('masjid_org_pref', cookieVal, {
+        path: '/',
+        maxAge: 31536000,
+        sameSite: 'lax',
+        httpOnly: false
+      });
+    }
+    return response;
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }
@@ -63,7 +74,9 @@ export async function DELETE(request) {
   try {
     const controller = new DatabaseController(user.role, user.id);
     controller.resetDatabase(true);
-    return NextResponse.json({ success: true, message: 'Database reset to clean state successfully.' });
+    const response = NextResponse.json({ success: true, message: 'Database reset to clean state successfully.' });
+    response.cookies.delete('masjid_org_pref');
+    return response;
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 400 });
   }
