@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 const SESSION_COOKIE_NAME = 'masjid_session';
 
-export function proxy(request) {
+export function middleware(request) {
   const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME);
   const token = sessionCookie?.value || sessionCookie;
   const hasSession = !!token && typeof token === 'string' && token.length > 20;
