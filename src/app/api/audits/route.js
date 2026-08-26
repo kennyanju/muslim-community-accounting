@@ -13,8 +13,8 @@ export async function GET(request) {
     const logUser = (db.users || []).find(u => u.id === log.user_id);
     return {
       ...log,
-      userEmail: logUser ? logUser.email : (log.user_id || 'System'),
-      userName: logUser ? logUser.name : (log.user_id || 'System')
+      userEmail: log.user_email || (logUser ? logUser.email : (log.user_id || 'System')),
+      userName: log.user_name || (logUser ? logUser.name : (log.user_id || 'System'))
     };
   });
   

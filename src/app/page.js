@@ -330,39 +330,46 @@ export default function Home() {
     }
   };
 
-  // Shariah Compliance Rule Checker for transaction entry
+  // Shariah Compliance Rule Checker for transaction entry (H1)
   const isRestrictedExpenseViolation = useMemo(() => {
     if (txForm.type !== 'expense') return false;
     const selectedFund = balances.find(b => b.fundId === txForm.fundId);
     if (!selectedFund || !selectedFund.isRestricted) return false;
     
-    const isOpCat = ['Utilities', 'Salaries', 'Maintenance', 'Office Supplies', 'Travel'].includes(txForm.category);
-    const hasOpKeyword = (txForm.description || '').toLowerCase().match(/utility|maintenance|salary|bill|rent|repair|clean/);
-    
-    return (selectedFund.fundName === 'Zakat' || selectedFund.fundName === 'Fitrana') && (isOpCat || hasOpKeyword);
+    const isZakatFitrana = (selectedFund.fundName === 'Zakat' || selectedFund.fundName === 'Fitrana');
+    if (!isZakatFitrana) return false;
+
+    // Restricted Zakat/Fitrana can ONLY be disbursed under 'Charitable Payout' with Asnaf notes
+    return txForm.category !== 'Charitable Payout' || !txForm.notes?.trim();
   }, [txForm, balances]);
 
   // 5. API Operations
   const handleAddTransaction = async (e) => {
     e.preventDefault();
     if (isRestrictedExpenseViolation) {
-      addToast("Shariah Compliance Violation: Cannot draw operational expenses from Zakat/Fitrana restricted funds.", "error");
+      addToast("Shariah Compliance Violation: Restricted funds (Zakat/Fitrana) can only be spent under category 'Charitable Payout' with beneficiary (Asnaf) notes.", "error");
       return;
     }
 
     setSubmitting(true);
     let finalSplits = [];
+    let calcTotal = 0;
     if (txForm.isSplit) {
-      finalSplits = txForm.splits.map(s => ({ fund_id: s.fundId, amount: parseFloat(s.amount) }));
+      finalSplits = txForm.splits.map(s => {
+        const amt = parseFloat(s.amount) || 0;
+        calcTotal += amt;
+        return { fund_id: s.fundId, amount: amt };
+      });
     } else {
-      finalSplits = [{ fund_id: txForm.fundId, amount: parseFloat(txForm.amount) }];
+      calcTotal = parseFloat(txForm.amount) || 0;
+      finalSplits = [{ fund_id: txForm.fundId, amount: calcTotal }];
     }
 
     const payload = {
       type: txForm.type.toUpperCase(),
       status: txForm.method === 'CASH' ? 'PENDING' : 'BANKED',
-      method: txForm.method.toUpperCase().replace(' ', '_'),
-      totalAmount: parseFloat(txForm.amount),
+      method: (txForm.method || 'CASH').toUpperCase().replace(/\s+/g, '_'),
+      totalAmount: calcTotal,
       date: txForm.date,
       donorId: txForm.donorId,
       receiptUrl: '',
@@ -406,6 +413,11 @@ export default function Home() {
 
   const handleLogJummah = async (e) => {
     e.preventDefault();
+    if (!jummahForm.counter1?.trim() || !jummahForm.counter2?.trim()) {
+      addToast("Both Counter 1 and Counter 2 witness signatures are required for Jummah cash audit integrity.", "error");
+      return;
+    }
+
     setSubmitting(true);
     
     const payload = {
@@ -420,7 +432,7 @@ export default function Home() {
       category: 'Donation',
       splits: [{ fund_id: jummahForm.fundId, amount: parseFloat(jummahForm.amount) }],
       giftAid: false,
-      notes: `Counters: ${jummahForm.counter1} & ${jummahForm.counter2}. ${jummahForm.notes || 'Friday cash counting slip signed.'}`
+      notes: `Counters: ${jummahForm.counter1.trim()} & ${jummahForm.counter2.trim()}. ${jummahForm.notes || 'Friday cash counting slip signed.'}`
     };
 
     try {
@@ -460,6 +472,7 @@ export default function Home() {
       setDonorModalOpen(false);
       setDonorForm({
         name: '',
+        email: '',
         address_line_1: '',
         address_line_2: '',
         city: '',
@@ -517,6 +530,9 @@ export default function Home() {
   };
 
   const handleReconcileLock = async (txId) => {
+    const confirmed = window.confirm("⚠️ Reconciling this transaction will permanently lock it against future edits, banking changes, or voiding. Proceed?");
+    if (!confirmed) return;
+
     try {
       await fetchAPI(`/api/transactions/${txId}/reconcile`, {
         method: 'POST'
@@ -940,8 +956,10 @@ export default function Home() {
     const donor = donors.find(d => d.id === tx.donor_id);
     const donorAddr = donor ? [donor.address_line_1, donor.address_line_2, donor.city, donor.postcode].filter(Boolean).join(', ') : 'Anonymous';
     
+    const recNum = tx.receipt_number || `REC-${tx.id.replace('tx-', '')}`;
+
     setReceiptDoc({
-      number: `REC-${tx.id.replace('tx-', '')}`,
+      number: recNum,
       type: 'receipt',
       date: tx.transaction_date,
       donorId: tx.donor_id,
@@ -956,7 +974,7 @@ export default function Home() {
     });
 
     setActiveTab('receipts');
-    addToast(`Transaction ${tx.id} loaded into receipt builder.`, "info");
+    addToast(`Transaction ${recNum} loaded into receipt builder.`, "info");
   };
 
   return (
@@ -1463,6 +1481,7 @@ export default function Home() {
                       <thead>
                         <tr>
                           <th>Name</th>
+                          <th>Email / Contact</th>
                           <th>Address</th>
                           <th>Postcode</th>
                           <th>Gift Aid Status</th>
@@ -1472,6 +1491,7 @@ export default function Home() {
                         {donors.filter(d => d.id !== 'anonymous').map(d => (
                           <tr key={d.id}>
                             <td><strong>{d.name}</strong></td>
+                            <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{d.email || '—'}</td>
                             <td>{[d.address_line_1, d.address_line_2, d.city].filter(Boolean).join(', ') || 'N/A'}</td>
                             <td><span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{d.postcode || '—'}</span></td>
                             <td>
@@ -2230,6 +2250,11 @@ export default function Home() {
               <div className="form-group">
                 <label>Donor Full Name</label>
                 <input type="text" placeholder="e.g. Dr. Majid Khan" value={donorForm.name} onChange={e => setDonorForm({ ...donorForm, name: e.target.value })} required />
+              </div>
+
+              <div className="form-group">
+                <label>Email Address (Optional &mdash; for receipts &amp; Gift Aid correspondence)</label>
+                <input type="email" placeholder="e.g. donor@example.com" value={donorForm.email || ''} onChange={e => setDonorForm({ ...donorForm, email: e.target.value })} />
               </div>
               
               <div className="form-group">

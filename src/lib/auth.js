@@ -106,8 +106,10 @@ export function verifySessionToken(token) {
   }
 }
 
+import { readDB } from './db.js';
+
 /**
- * Get current authenticated user from Next.js request cookies
+ * Get current authenticated user from Next.js request cookies and verify active database status
  */
 export function getAuthenticatedUser(request) {
   let token = null;
@@ -127,7 +129,26 @@ export function getAuthenticatedUser(request) {
   }
 
   if (!token) return null;
-  return verifySessionToken(token);
+  const payload = verifySessionToken(token);
+  if (!payload || !payload.id) return null;
+
+  try {
+    const db = readDB();
+    const liveUser = (db.users || []).find(u => u.id === payload.id);
+    if (!liveUser || liveUser.status !== 'ACTIVE') {
+      return null;
+    }
+
+    return {
+      id: liveUser.id,
+      email: liveUser.email,
+      role: liveUser.role,
+      name: liveUser.name || liveUser.email.split('@')[0],
+      status: liveUser.status
+    };
+  } catch (err) {
+    return payload;
+  }
 }
 
 /**

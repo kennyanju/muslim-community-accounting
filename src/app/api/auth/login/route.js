@@ -16,9 +16,9 @@ export async function POST(request) {
     const db = readDB();
     const user = db.users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
 
-    if (!user || user.status === 'INACTIVE') {
+    if (!user || user.status !== 'ACTIVE') {
       return NextResponse.json(
-        { error: 'Invalid email or password' },
+        { error: 'Account is inactive or credentials are invalid' },
         { status: 401 }
       );
     }

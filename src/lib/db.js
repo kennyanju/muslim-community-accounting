@@ -18,6 +18,10 @@ const DEFAULT_ORGANISATION = initialDBData?.organisation || {
   country: 'United Kingdom'
 };
 
+const ALLOWED_ORG_FIELDS = [
+  'name', 'short_name', 'tagline', 'charity_number', 'address', 'email', 'phone', 'currency_symbol', 'country'
+];
+
 let inMemoryDB = JSON.parse(JSON.stringify(initialDBData));
 
 // Helper to read database with filesystem and serverless in-memory fallback
@@ -43,7 +47,7 @@ export function readDB() {
   return inMemoryDB;
 }
 
-// Helper to extract persisted organisation profile from request cookies / headers
+// Helper to extract persisted organisation profile from request cookies / headers with field whitelisting (M4)
 export function getOrganisationFromRequest(request) {
   let cookieVal = null;
   
@@ -68,10 +72,18 @@ export function getOrganisationFromRequest(request) {
     try {
       const decoded = JSON.parse(decodeURIComponent(cookieVal));
       if (decoded && typeof decoded === 'object' && decoded.name) {
+        // Whitelist only safe fields to prevent injection
+        const sanitized = {};
+        ALLOWED_ORG_FIELDS.forEach(field => {
+          if (decoded[field] !== undefined && typeof decoded[field] === 'string') {
+            sanitized[field] = decoded[field].trim();
+          }
+        });
+
         db.organisation = {
           ...DEFAULT_ORGANISATION,
           ...(db.organisation || {}),
-          ...decoded
+          ...sanitized
         };
         inMemoryDB.organisation = db.organisation;
         return db.organisation;
@@ -84,7 +96,7 @@ export function getOrganisationFromRequest(request) {
   return db.organisation || DEFAULT_ORGANISATION;
 }
 
-// Helper to write database safely with in-memory caching and optional file sync
+// Helper to write database safely with in-memory caching and atomic file rename (M1)
 export function writeDB(data) {
   inMemoryDB = data;
   try {
@@ -114,6 +126,22 @@ export class DatabaseController {
     }
   }
 
+  // Helper for denormalized audit logging (L4)
+  logAudit(table_name, record_id, action, db) {
+    const user = (db.users || []).find(u => u.id === this.userId);
+    db.audit_logs = db.audit_logs || [];
+    db.audit_logs.unshift({
+      id: `log-${crypto.randomUUID().substring(0, 8)}`,
+      table_name,
+      record_id,
+      action,
+      user_id: this.userId,
+      user_email: user ? user.email : this.userId,
+      user_name: user ? user.name : (user?.email?.split('@')[0] || this.userId),
+      timestamp: new Date().toISOString()
+    });
+  }
+
   // -------------------------------------------------------------
   // ORGANISATION SETTINGS
   // -------------------------------------------------------------
@@ -126,20 +154,21 @@ export class DatabaseController {
     this.checkAdmin();
     const db = readDB();
     
+    // Sanitize incoming fields
+    const sanitized = {};
+    ALLOWED_ORG_FIELDS.forEach(field => {
+      if (newOrgData[field] !== undefined && typeof newOrgData[field] === 'string') {
+        sanitized[field] = newOrgData[field].trim();
+      }
+    });
+
     db.organisation = {
       ...DEFAULT_ORGANISATION,
       ...(db.organisation || {}),
-      ...newOrgData
+      ...sanitized
     };
 
-    db.audit_logs.unshift({
-      id: `log-${crypto.randomUUID().substring(0, 8)}`,
-      table_name: 'organisation',
-      record_id: 'settings',
-      action: 'UPDATE',
-      user_id: this.userId,
-      timestamp: new Date().toISOString()
-    });
+    this.logAudit('organisation', 'settings', 'UPDATE', db);
 
     writeDB(db);
     return db.organisation;
@@ -174,15 +203,7 @@ export class DatabaseController {
     };
 
     db.funds.push(newFund);
-
-    db.audit_logs.unshift({
-      id: `log-${crypto.randomUUID().substring(0, 8)}`,
-      table_name: 'funds',
-      record_id: fundId,
-      action: 'INSERT',
-      user_id: this.userId,
-      timestamp: new Date().toISOString()
-    });
+    this.logAudit('funds', fundId, 'INSERT', db);
 
     writeDB(db);
     return newFund;
@@ -202,19 +223,21 @@ export class DatabaseController {
       throw new Error("Zakat and Fitrana funds must remain classified as Restricted under Shariah compliance rules.");
     }
 
+    // M2: Check non-zero balance before archiving
+    if (is_archived === true) {
+      const balances = this.getBalances();
+      const fundBalance = balances.find(b => b.fundId === id);
+      if (fundBalance && Math.abs(fundBalance.balance) > 0.001) {
+        throw new Error(`Cannot archive fund "${fund.name}" with an active balance of £${fundBalance.balance.toFixed(2)}. Please disburse or reallocate remaining funds first.`);
+      }
+    }
+
     if (name && name.trim()) fund.name = name.trim();
     if (is_restricted !== undefined) fund.is_restricted = !!is_restricted;
     if (is_archived !== undefined) fund.is_archived = !!is_archived;
     if (description !== undefined) fund.description = description.trim();
 
-    db.audit_logs.unshift({
-      id: `log-${crypto.randomUUID().substring(0, 8)}`,
-      table_name: 'funds',
-      record_id: id,
-      action: 'UPDATE',
-      user_id: this.userId,
-      timestamp: new Date().toISOString()
-    });
+    this.logAudit('funds', id, 'UPDATE', db);
 
     writeDB(db);
     return fund;
@@ -251,15 +274,7 @@ export class DatabaseController {
     };
 
     db.users.push(newUser);
-
-    db.audit_logs.unshift({
-      id: `log-${crypto.randomUUID().substring(0, 8)}`,
-      table_name: 'users',
-      record_id: userId,
-      action: 'INSERT',
-      user_id: this.userId,
-      timestamp: new Date().toISOString()
-    });
+    this.logAudit('users', userId, 'INSERT', db);
 
     writeDB(db);
     const { password_hash, ...safeUser } = newUser;
@@ -272,6 +287,20 @@ export class DatabaseController {
     const user = db.users.find(u => u.id === id);
     if (!user) throw new Error("User not found");
 
+    // C2: Prevent demoting or deactivating the last active Admin, and prevent self-demotion
+    const activeAdmins = db.users.filter(u => u.role === 'ADMIN' && u.status === 'ACTIVE');
+    const isTargetActiveAdmin = user.role === 'ADMIN' && user.status === 'ACTIVE';
+    const willLoseAdmin = (role && role !== 'ADMIN') || (status && status !== 'ACTIVE');
+
+    if (isTargetActiveAdmin && willLoseAdmin) {
+      if (activeAdmins.length <= 1) {
+        throw new Error("Cannot demote or deactivate the last remaining active Administrator.");
+      }
+      if (this.userId === id) {
+        throw new Error("Administrators cannot demote or deactivate their own active account.");
+      }
+    }
+
     if (name) user.name = name.trim();
     if (role && ['ADMIN', 'REVIEWER', 'AUDITOR'].includes(role)) user.role = role;
     if (status && ['ACTIVE', 'INACTIVE'].includes(status)) user.status = status;
@@ -280,14 +309,7 @@ export class DatabaseController {
       user.password_hash = hashPassword(password);
     }
 
-    db.audit_logs.unshift({
-      id: `log-${crypto.randomUUID().substring(0, 8)}`,
-      table_name: 'users',
-      record_id: id,
-      action: 'UPDATE',
-      user_id: this.userId,
-      timestamp: new Date().toISOString()
-    });
+    this.logAudit('users', id, 'UPDATE', db);
 
     writeDB(db);
     const { password_hash, ...safeUser } = user;
@@ -302,7 +324,7 @@ export class DatabaseController {
     const balancesMap = {};
     
     // Initialize fund balances to 0
-    db.funds.forEach(f => {
+    (db.funds || []).forEach(f => {
       balancesMap[f.id] = {
         fundId: f.id,
         fundName: f.name,
@@ -313,11 +335,11 @@ export class DatabaseController {
     });
 
     // Sum up splits of active transactions
-    db.transactions.forEach(tx => {
+    (db.transactions || []).forEach(tx => {
       if (tx.status === 'VOIDED' || tx.status === 'FAILED') return;
       
       const isIncome = tx.type === 'INCOME';
-      const splits = db.transaction_splits.filter(s => s.transaction_id === tx.id);
+      const splits = (db.transaction_splits || []).filter(s => s.transaction_id === tx.id && !s.is_voided);
       
       splits.forEach(split => {
         if (balancesMap[split.fund_id]) {
@@ -352,42 +374,29 @@ export class DatabaseController {
       notes 
     } = payload;
     
-    const splitTotal = splits.reduce((sum, split) => sum + parseFloat(split.amount), 0);
-    if (Math.abs(splitTotal - parseFloat(totalAmount)) > 0.01) {
-      throw new Error(`Splits total (${splitTotal.toFixed(2)}) does not match transaction total (${parseFloat(totalAmount).toFixed(2)})`);
+    if (!splits || !Array.isArray(splits) || splits.length === 0) {
+      throw new Error("At least one fund split allocation is required.");
     }
 
-    // 1. Database Trigger: check_restricted_fund_usage() (Rule 1)
+    // H6: Precise integer cent arithmetic validation
+    const splitTotalCents = splits.reduce((sum, split) => sum + Math.round(parseFloat(split.amount || 0) * 100), 0);
+    const totalCents = Math.round(parseFloat(totalAmount || 0) * 100);
+
+    if (splitTotalCents !== totalCents) {
+      throw new Error(`Splits total (£${(splitTotalCents / 100).toFixed(2)}) does not match transaction total (£${(totalCents / 100).toFixed(2)})`);
+    }
+
+    // H1: Strict Shariah Compliance Rule (Restricted Funds Zakat / Fitrana can ONLY be spent on Charitable Payout)
     if (type === 'EXPENSE') {
-      const isOpExpense = (
-        (reference_note && (
-          reference_note.toLowerCase().includes('utility') || 
-          reference_note.toLowerCase().includes('maintenance') || 
-          reference_note.toLowerCase().includes('bill') ||
-          reference_note.toLowerCase().includes('salary')
-        )) ||
-        (category && (
-          category.toLowerCase().includes('utilities') ||
-          category.toLowerCase().includes('salaries') ||
-          category.toLowerCase().includes('maintenance') ||
-          category.toLowerCase().includes('office')
-        ))
-      );
-      
       splits.forEach(split => {
         const fund = db.funds.find(f => f.id === split.fund_id);
         if (fund && fund.is_restricted && (fund.name === 'Zakat' || fund.name === 'Fitrana')) {
-          if (isOpExpense) {
-            throw new Error(`Strict Compliance Violation: Cannot use restricted funds (Zakat/Fitrana) for operational expenses (${reference_note || category}).`);
+          if (category !== 'Charitable Payout') {
+            throw new Error(`Strict Compliance Violation: Restricted funds (Zakat/Fitrana) can only be disbursed under the 'Charitable Payout' category to eligible beneficiaries (Asnaf). Found category: '${category}'.`);
           }
-        }
-      });
-
-      // Ensure notes exist for Zakat payouts
-      splits.forEach(split => {
-        const fund = db.funds.find(f => f.id === split.fund_id);
-        if (fund && fund.name === 'Zakat' && (!notes || !notes.trim())) {
-          throw new Error("Zakat disbursements require detailed beneficiary (Asnaf) notes for auditing purposes.");
+          if (!notes || !notes.trim()) {
+            throw new Error("Zakat and Fitrana disbursements require detailed beneficiary (Asnaf) notes for auditing purposes.");
+          }
         }
       });
     }
@@ -405,8 +414,18 @@ export class DatabaseController {
     if (type === 'INCOME' && (reference_note === 'Interest' || category === 'Interest')) {
       const ribaFund = db.funds.find(f => f.name === 'Interest/Riba');
       if (ribaFund) {
-        finalSplits = [{ fund_id: ribaFund.id, amount: parseFloat(totalAmount) }];
+        finalSplits = [{ fund_id: ribaFund.id, amount: (totalCents / 100) }];
       }
+    }
+
+    // C4 & H4: Atomic receipt number generation for Income transactions
+    let receiptNum = '';
+    if (type === 'INCOME') {
+      const orgShort = (db.organisation?.short_name || 'MASJID').replace(/[^a-zA-Z0-9]/g, '') || 'MASJID';
+      const counter = db.receipt_counter || 1;
+      const txYear = new Date(date || Date.now()).getFullYear();
+      receiptNum = `${orgShort}-${txYear}-${String(counter).padStart(4, '0')}`;
+      db.receipt_counter = counter + 1;
     }
 
     // Generate Transaction ID
@@ -416,11 +435,12 @@ export class DatabaseController {
       id: txId,
       type: type.toUpperCase(),
       status: status || (method === 'CASH' ? 'PENDING' : 'BANKED'),
-      method,
-      total_amount: parseFloat(totalAmount),
+      method: (method || 'CASH').toUpperCase().replace(/\s+/g, '_'),
+      total_amount: (totalCents / 100),
       transaction_date: date,
       donor_id: donorId || 'anonymous',
       receipt_url: receiptUrl || '',
+      receipt_number: receiptNum,
       reference_note: reference_note || 'Donation',
       category: category || (type === 'INCOME' ? 'Donation' : 'Other'),
       created_by: this.userId,
@@ -437,25 +457,18 @@ export class DatabaseController {
         id: `split-${crypto.randomUUID().substring(0, 8)}`,
         transaction_id: txId,
         fund_id: s.fund_id,
-        amount: parseFloat(s.amount)
+        amount: parseFloat(s.amount),
+        is_voided: false
       });
     });
 
-    // Insert to Audit Logs
-    db.audit_logs.unshift({
-      id: `log-${crypto.randomUUID().substring(0, 8)}`,
-      table_name: 'transactions',
-      record_id: txId,
-      action: 'INSERT',
-      user_id: this.userId,
-      timestamp: new Date().toISOString()
-    });
+    this.logAudit('transactions', txId, 'INSERT', db);
 
     writeDB(db);
     return txId;
   }
 
-  // Void Transaction without destroying original reference_note
+  // Void Transaction without destroying original reference_note (H3)
   voidTransaction(id, reason) {
     this.checkAdmin();
     if (!reason || !reason.trim()) {
@@ -477,38 +490,32 @@ export class DatabaseController {
     tx.voided_at = new Date().toISOString();
     tx.voided_by = this.userId;
 
-    db.audit_logs.unshift({
-      id: `log-${crypto.randomUUID().substring(0, 8)}`,
-      table_name: 'transactions',
-      record_id: id,
-      action: 'VOID',
-      user_id: this.userId,
-      timestamp: new Date().toISOString()
+    // H3: Explicitly mark all splits as voided
+    db.transaction_splits.forEach(s => {
+      if (s.transaction_id === id) {
+        s.is_voided = true;
+        s.voided_at = tx.voided_at;
+      }
     });
+
+    this.logAudit('transactions', id, 'VOID', db);
 
     writeDB(db);
     return true;
   }
 
-  // Bank Deposit cash collection
+  // Bank Deposit cash collection (H5)
   depositCash(id) {
     this.checkAdmin();
     
     const db = readDB();
     const tx = db.transactions.find(t => t.id === id);
     if (!tx) throw new Error("Transaction not found");
+    if (tx.reconciled) throw new Error("Cannot bank a transaction that is already reconciled and permanently locked.");
     if (tx.status !== 'PENDING') throw new Error("Only pending Cash on Hand can be banked.");
     
     tx.status = 'BANKED';
-    
-    db.audit_logs.unshift({
-      id: `log-${crypto.randomUUID().substring(0, 8)}`,
-      table_name: 'transactions',
-      record_id: id,
-      action: 'UPDATE',
-      user_id: this.userId,
-      timestamp: new Date().toISOString()
-    });
+    this.logAudit('transactions', id, 'UPDATE', db);
     
     writeDB(db);
     return true;
@@ -525,23 +532,16 @@ export class DatabaseController {
     tx.reconciled = true;
     if (tx.status === 'PENDING') tx.status = 'BANKED';
     
-    db.audit_logs.unshift({
-      id: `log-${crypto.randomUUID().substring(0, 8)}`,
-      table_name: 'transactions',
-      record_id: id,
-      action: 'UPDATE',
-      user_id: this.userId,
-      timestamp: new Date().toISOString()
-    });
+    this.logAudit('transactions', id, 'UPDATE', db);
     
     writeDB(db);
     return true;
   }
 
   // -------------------------------------------------------------
-  // DONORS
+  // DONORS (M6)
   // -------------------------------------------------------------
-  createDonor({ name, address, address_line_1, address_line_2, city, postcode, giftAidEligible }) {
+  createDonor({ name, email, address, address_line_1, address_line_2, city, postcode, giftAidEligible }) {
     this.checkAdmin();
     if (!name || !name.trim()) throw new Error("Donor name is required.");
     
@@ -572,6 +572,7 @@ export class DatabaseController {
     const newDonor = {
       id: dId,
       name: name.trim(),
+      email: (email || '').trim().toLowerCase(),
       is_anonymous: false,
       gift_aid_eligible: !!giftAidEligible,
       address_line_1: line1.trim(),
@@ -582,27 +583,24 @@ export class DatabaseController {
     };
 
     db.donors.push(newDonor);
-    
-    db.audit_logs.unshift({
-      id: `log-${crypto.randomUUID().substring(0, 8)}`,
-      table_name: 'donors',
-      record_id: dId,
-      action: 'INSERT',
-      user_id: this.userId,
-      timestamp: new Date().toISOString()
-    });
+    this.logAudit('donors', dId, 'INSERT', db);
     
     writeDB(db);
     return dId;
   }
 
   // -------------------------------------------------------------
-  // BACKUP & RESTORE
+  // BACKUP & RESTORE (C3)
   // -------------------------------------------------------------
   exportBackup() {
     this.checkAdmin();
     const db = readDB();
-    return db;
+    // C3: Strip raw password hashes from export to protect credentials
+    const safeUsers = (db.users || []).map(({ password_hash, ...u }) => u);
+    return {
+      ...db,
+      users: safeUsers
+    };
   }
 
   restoreBackup(backupData) {
@@ -614,17 +612,33 @@ export class DatabaseController {
       throw new Error("Backup file is missing core tables (funds, transactions).");
     }
 
-    writeDB(backupData);
+    const currentDb = readDB();
+
+    // Preserve current active credentials when merging users from backup
+    const mergedUsers = (backupData.users || []).map(bu => {
+      const existing = currentDb.users.find(u => u.id === bu.id || u.email.toLowerCase() === bu.email.toLowerCase());
+      return {
+        ...bu,
+        password_hash: existing ? existing.password_hash : hashPassword('ChangeMe123!')
+      };
+    });
+
+    // Ensure acting admin account is never deleted during restore
+    if (!mergedUsers.some(u => u.id === this.userId)) {
+      const currentAdmin = currentDb.users.find(u => u.id === this.userId);
+      if (currentAdmin) mergedUsers.push(currentAdmin);
+    }
+
+    const restoredDb = {
+      ...backupData,
+      users: mergedUsers.length > 0 ? mergedUsers : currentDb.users,
+      audit_logs: Array.isArray(backupData.audit_logs) ? backupData.audit_logs : []
+    };
+
+    writeDB(restoredDb);
 
     const db = readDB();
-    db.audit_logs.unshift({
-      id: `log-${crypto.randomUUID().substring(0, 8)}`,
-      table_name: 'database',
-      record_id: 'full_restore',
-      action: 'RESTORE',
-      user_id: this.userId,
-      timestamp: new Date().toISOString()
-    });
+    this.logAudit('database', 'full_restore', 'RESTORE', db);
     writeDB(db);
     return true;
   }
@@ -647,33 +661,27 @@ export class DatabaseController {
         { id: "fund-riba", name: "Interest/Riba", is_restricted: true, description: "Unlawful bank interest to be disposed of without intention of spiritual reward", is_archived: false }
       ],
       donors: [
-        { id: "anonymous", name: "Anonymous Donor", is_anonymous: true, gift_aid_eligible: false, address_line_1: "", address_line_2: "", city: "", postcode: "" }
+        { id: "anonymous", name: "Anonymous Donor", email: "", is_anonymous: true, gift_aid_eligible: false, address_line_1: "", address_line_2: "", city: "", postcode: "" }
       ],
       transactions: [],
       transaction_splits: [],
-      audit_logs: [
-        {
-          id: `log-${crypto.randomUUID().substring(0, 8)}`,
-          table_name: 'database',
-          record_id: 'clean_reset',
-          action: 'RESET',
-          user_id: this.userId,
-          timestamp: new Date().toISOString()
-        }
-      ],
-      receipt_counter: 1
+      audit_logs: [],
+      receipt_counter: db.receipt_counter || 1
     };
+
+    this.logAudit('database', 'clean_reset', 'RESET', freshDb);
 
     writeDB(freshDb);
     return freshDb;
   }
 
   // Next receipt number
-  getNextReceiptNumber(orgShortName = 'MASJID') {
+  getNextReceiptNumber(orgShortName = null) {
     const db = readDB();
+    const orgShort = orgShortName || db.organisation?.short_name || 'MASJID';
     const counter = db.receipt_counter || 1;
     const year = new Date().getFullYear();
-    const formattedNum = `${orgShortName}-${year}-${String(counter).padStart(4, '0')}`;
+    const formattedNum = `${orgShort}-${year}-${String(counter).padStart(4, '0')}`;
     db.receipt_counter = counter + 1;
     writeDB(db);
     return formattedNum;

@@ -56,11 +56,19 @@ export async function GET(request) {
   }
 
   if (dateFrom) {
-    result = result.filter(tx => tx.transaction_date >= dateFrom);
+    const fromTime = new Date(dateFrom).getTime();
+    result = result.filter(tx => {
+      const txTime = new Date(tx.transaction_date).getTime();
+      return !isNaN(txTime) && !isNaN(fromTime) ? txTime >= fromTime : tx.transaction_date >= dateFrom;
+    });
   }
 
   if (dateTo) {
-    result = result.filter(tx => tx.transaction_date <= dateTo);
+    const toTime = new Date(dateTo + (dateTo.length <= 10 ? 'T23:59:59.999Z' : '')).getTime();
+    result = result.filter(tx => {
+      const txTime = new Date(tx.transaction_date).getTime();
+      return !isNaN(txTime) && !isNaN(toTime) ? txTime <= toTime : tx.transaction_date <= dateTo;
+    });
   }
 
   if (jummahOnly) {
@@ -91,6 +99,7 @@ export async function GET(request) {
       tx.reference_note?.toLowerCase().includes(search) ||
       tx.donorName?.toLowerCase().includes(search) ||
       tx.category?.toLowerCase().includes(search) ||
+      tx.receipt_number?.toLowerCase().includes(search) ||
       tx.notes?.toLowerCase().includes(search)
     );
   }
@@ -98,15 +107,16 @@ export async function GET(request) {
   // Handle CSV export of full ledger
   if (format === 'csv') {
     const org = db.organisation || {};
-    let csv = `Date,Type,Reference / Description,Category,Donor,Fund Splits,Payment Method,Amount (${org.currency_symbol || '£'}),Status,Reconciled,Notes\n`;
+    let csv = `Date,Receipt No,Type,Reference / Description,Category,Donor,Fund Splits,Payment Method,Amount (${org.currency_symbol || '£'}),Status,Reconciled,Notes\n`;
     
     result.forEach(tx => {
       const fundSplits = tx.splits.map(s => `${s.fundName}: ${s.amount}`).join(' | ');
       const desc = (tx.reference_note || tx.description || '').replace(/"/g, '""');
       const notes = (tx.notes || '').replace(/"/g, '""');
       const donor = (tx.donorName || 'Anonymous').replace(/"/g, '""');
+      const recNo = (tx.receipt_number || '').replace(/"/g, '""');
       
-      csv += `"${tx.transaction_date}","${tx.type}","${desc}","${tx.category || ''}","${donor}","${fundSplits}","${tx.method}",${parseFloat(tx.total_amount).toFixed(2)},"${tx.status}","${tx.reconciled ? 'YES' : 'NO'}","${notes}"\n`;
+      csv += `"${tx.transaction_date}","${recNo}","${tx.type}","${desc}","${tx.category || ''}","${donor}","${fundSplits}","${tx.method}",${parseFloat(tx.total_amount).toFixed(2)},"${tx.status}","${tx.reconciled ? 'YES' : 'NO'}","${notes}"\n`;
     });
 
     return new Response(csv, {

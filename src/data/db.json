@@ -91,6 +91,7 @@
     {
       "id": "anonymous",
       "name": "Anonymous Donor",
+      "email": "",
       "is_anonymous": true,
       "gift_aid_eligible": false,
       "address_line_1": "",
@@ -103,13 +104,15 @@
   "transaction_splits": [],
   "audit_logs": [
     {
-      "id": "log-4c01a9ea",
+      "id": "log-be799526",
       "table_name": "database",
       "record_id": "clean_reset",
       "action": "RESET",
       "user_id": "user-sec-1",
-      "timestamp": "2026-08-25T12:43:48.790Z"
+      "user_email": "secretary@bsmc.org.uk",
+      "user_name": "Financial Secretary",
+      "timestamp": "2026-08-26T17:37:23.727Z"
     }
   ],
-  "receipt_counter": 1
+  "receipt_counter": 15
 }

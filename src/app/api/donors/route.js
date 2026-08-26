@@ -23,10 +23,11 @@ export async function POST(request) {
   }
   
   try {
-    const { name, address, address_line_1, address_line_2, city, postcode, giftAidEligible } = await request.json();
+    const { name, email, address, address_line_1, address_line_2, city, postcode, giftAidEligible } = await request.json();
     const controller = new DatabaseController(user.role, user.id);
     const donorId = controller.createDonor({
       name,
+      email,
       address,
       address_line_1,
       address_line_2,
