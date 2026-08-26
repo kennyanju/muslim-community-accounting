@@ -1,29 +1,62 @@
-import { NextResponse } from 'next/server';
 import { readDB, DatabaseController } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { apiSuccess, apiError } from '@/lib/response';
+import { validateDonorPayload, sanitizePagination } from '@/lib/validation';
+import { logger } from '@/lib/logger';
 
 export async function GET(request) {
   const user = getAuthenticatedUser(request);
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized: Authentication required to view donor records.' }, { status: 401 });
+    return apiError('Unauthorized: Authentication required to view donor records.', 401, { code: 'UNAUTHORIZED' });
   }
 
+  const { searchParams } = new URL(request.url);
+  const search = searchParams.get('search')?.toLowerCase().trim() || '';
+  const giftAidOnly = searchParams.get('giftAidOnly') === 'true';
+
   const db = readDB();
-  return NextResponse.json(db.donors);
+  let result = [...(db.donors || [])];
+
+  if (search) {
+    result = result.filter(d => 
+      d.name?.toLowerCase().includes(search) ||
+      d.email?.toLowerCase().includes(search) ||
+      d.postcode?.toLowerCase().includes(search)
+    );
+  }
+
+  if (giftAidOnly) {
+    result = result.filter(d => d.gift_aid_eligible);
+  }
+
+  const { page, pageSize, offset } = sanitizePagination(searchParams, 50, 200);
+  const paginated = result.slice(offset, offset + pageSize);
+
+  return apiSuccess(paginated, {
+    meta: {
+      total: result.length,
+      page,
+      pageSize,
+      totalPages: Math.ceil(result.length / pageSize)
+    }
+  });
 }
 
 export async function POST(request) {
   const user = getAuthenticatedUser(request);
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
 
   if (user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'Forbidden: Financial Secretary (Admin) only' }, { status: 403 });
+    return apiError('Forbidden: Financial Secretary (Admin) only', 403, { code: 'FORBIDDEN' });
   }
   
   try {
-    const { name, email, address, address_line_1, address_line_2, city, postcode, giftAidEligible } = await request.json();
+    const body = await request.json();
+    validateDonorPayload(body);
+
+    const { name, email, address, address_line_1, address_line_2, city, postcode, giftAidEligible } = body;
     const controller = new DatabaseController(user.role, user.id);
     const donorId = controller.createDonor({
       name,
@@ -35,11 +68,11 @@ export async function POST(request) {
       postcode,
       giftAidEligible
     });
-    return NextResponse.json({ success: true, id: donorId }, { status: 201 });
+
+    logger.info('Donor registered', { donorId, name, userId: user.id });
+    return apiSuccess({ id: donorId }, { status: 201, message: 'Donor registered successfully' });
   } catch (err) {
-    return NextResponse.json(
-      { error: err.message },
-      { status: 400 }
-    );
+    logger.warn('Failed to register donor', { error: err.message, userId: user.id });
+    return apiError(err.message, 400, { code: 'VALIDATION_ERROR' });
   }
 }

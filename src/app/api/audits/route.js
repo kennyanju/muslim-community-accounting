@@ -1,11 +1,11 @@
-import { NextResponse } from 'next/server';
 import { readDB } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { apiSuccess, apiError } from '@/lib/response';
 
 export async function GET(request) {
   const user = getAuthenticatedUser(request);
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized: Authentication required' }, { status: 401 });
+    return apiError('Unauthorized: Authentication required', 401, { code: 'UNAUTHORIZED' });
   }
 
   const db = readDB();
@@ -18,5 +18,5 @@ export async function GET(request) {
     };
   });
   
-  return NextResponse.json(logs);
+  return apiSuccess(logs);
 }

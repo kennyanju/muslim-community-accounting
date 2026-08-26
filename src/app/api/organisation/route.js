@@ -1,20 +1,21 @@
-import { NextResponse } from 'next/server';
 import { DatabaseController, getOrganisationFromRequest } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { apiSuccess, apiError } from '@/lib/response';
+import { logger } from '@/lib/logger';
 
 export async function GET(request) {
   const org = getOrganisationFromRequest(request);
-  return NextResponse.json(org);
+  return apiSuccess(org);
 }
 
 export async function PUT(request) {
   const user = getAuthenticatedUser(request);
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
 
   if (user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'Forbidden: Admins only' }, { status: 403 });
+    return apiError('Forbidden: Admins only', 403, { code: 'FORBIDDEN' });
   }
 
   try {
@@ -22,7 +23,10 @@ export async function PUT(request) {
     const controller = new DatabaseController(user.role, user.id);
     const updated = controller.updateOrganisation(body);
 
-    const response = NextResponse.json(updated);
+    logger.info('Organisation profile updated', { name: updated.name, userId: user.id });
+
+    const response = apiSuccess(updated, { message: 'Organisation settings saved' });
+    
     // Set 1-year persistent cookie so organisation settings survive edge cold-starts and logouts
     const cookieVal = encodeURIComponent(JSON.stringify(updated));
     response.cookies.set('masjid_org_pref', cookieVal, {
@@ -34,6 +38,7 @@ export async function PUT(request) {
 
     return response;
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    logger.warn('Failed to update organisation profile', { error: err.message, userId: user.id });
+    return apiError(err.message, 400, { code: 'UPDATE_ERROR' });
   }
 }

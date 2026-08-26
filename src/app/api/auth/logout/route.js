@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { buildLogoutCookie } from '@/lib/auth';
+import { apiSuccess } from '@/lib/response';
 
 export async function POST() {
-  const response = NextResponse.json({ success: true });
-  response.headers.set('Set-Cookie', buildLogoutCookie());
+  const cookieHeader = buildLogoutCookie();
+  const response = apiSuccess({ message: 'Logged out successfully' });
+  response.headers.set('Set-Cookie', cookieHeader);
   return response;
 }

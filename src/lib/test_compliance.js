@@ -1,5 +1,7 @@
 import { DatabaseController, readDB, getOrganisationFromRequest } from './db.js';
-import { hashPassword, verifyPassword, createSessionToken, verifySessionToken, getAuthenticatedUser } from './auth.js';
+import { hashPassword, verifyPassword, createSessionToken, verifySessionToken, getAuthenticatedUser, hasPermission } from './auth.js';
+import { validateTransactionPayload, validateDonorPayload, validateFundPayload, validateUserPayload } from './validation.js';
+import { checkRateLimit } from './rateLimit.js';
 
 console.log("--------------------------------------------------");
 console.log("RUNNING AUTOMATED COMPLIANCE & SECURITY TESTS");
@@ -98,12 +100,15 @@ try {
     type: 'INCOME',
     status: 'BANKED',
     method: 'CARD',
-    totalAmount: 10.00,
+    totalAmount: 100.00,
     date: '2026-06-12',
     donorId: 'anonymous',
-    splits: [{ fund_id: 'fund-lillah', amount: 10.00 }]
+    receiptUrl: '',
+    reference_note: 'Illegal reviewer write',
+    category: 'Donation',
+    splits: [{ fund_id: 'fund-lillah', amount: 100.00 }]
   });
-  assert(false, "Reviewer/Trustee was allowed to create a transaction!");
+  assert(false, "Allowed non-admin user to perform write operation");
 } catch (err) {
   assert(
     err.message.includes("403 Forbidden"),
@@ -111,75 +116,87 @@ try {
   );
 }
 
-// Test case 4: Password Hashing and Verification
+// Test case 4: Validate password hashing with scrypt and PBKDF2 formats
 try {
-  const pwd = "TestSecurePassword2026!";
-  const hash = hashPassword(pwd);
-  assert(verifyPassword(pwd, hash), "Password hashing and verification with scrypt/PBKDF2");
-  assert(!verifyPassword("WrongPassword", hash), "Password verification rejects incorrect password");
+  const pass = 'SuperSecret123!';
+  const hash = hashPassword(pass);
+  const isMatch = verifyPassword(pass, hash);
+  assert(isMatch === true, "Password hashing and verification with scrypt/PBKDF2");
+
+  const isWrongMatch = verifyPassword('WrongPassword', hash);
+  assert(isWrongMatch === false, "Password verification rejects incorrect password");
 } catch (err) {
-  assert(false, `Password hashing test failed: ${err.message}`);
+  assert(false, `Password auth failed: ${err.message}`);
 }
 
-// Test case 5: Cryptographic Session Token Generation & Verification
+// Test case 5: Validate HMAC Session Token Creation and Verification
 try {
-  const mockUser = { id: 'user-sec-1', email: 'secretary@bsmc.org.uk', role: 'ADMIN', name: 'Secretary' };
+  const mockUser = {
+    id: 'user-sec-1',
+    email: 'secretary@bsmc.org.uk',
+    role: 'ADMIN',
+    name: 'Secretary'
+  };
   const token = createSessionToken(mockUser);
-  const verified = verifySessionToken(token);
+  const payload = verifySessionToken(token);
+
   assert(
-    verified && verified.id === mockUser.id && verified.role === mockUser.role,
+    payload !== null && payload.id === mockUser.id && payload.role === 'ADMIN',
     "Session token creation and cryptographic HMAC verification"
   );
-  
-  // Tampered token test
-  const tamperedToken = token.substring(0, token.length - 4) + 'abcd';
-  assert(verifySessionToken(tamperedToken) === null, "Tampered session token correctly rejected");
+
+  const tamperedToken = token.slice(0, -5) + 'xxxxx';
+  const tamperedPayload = verifySessionToken(tamperedToken);
+  assert(
+    tamperedPayload === null,
+    "Tampered session token correctly rejected"
+  );
 } catch (err) {
-  assert(false, `Session token test failed: ${err.message}`);
+  assert(false, `Session token failed: ${err.message}`);
 }
 
-// Test case 6: Voiding preserves original reference note and marks splits as voided (H3)
+// Test case 6: Voiding transactions keeps reference notes and records void reasons
 try {
   const controller = new DatabaseController('ADMIN', 'user-sec-1');
   const txId = controller.createTransaction({
     type: 'INCOME',
     status: 'BANKED',
-    method: 'BANK_TRANSFER',
-    totalAmount: 50.00,
+    method: 'CASH',
+    totalAmount: 75.00,
     date: '2026-06-12',
     donorId: 'anonymous',
-    reference_note: 'Original Clean Water Donation',
+    receiptUrl: '',
+    reference_note: 'Special Jummah Collection for Orphanage',
     category: 'Donation',
-    splits: [{ fund_id: 'fund-lillah', amount: 50.00 }]
+    splits: [{ fund_id: 'fund-sadaqah', amount: 75.00 }]
   });
 
-  controller.voidTransaction(txId, 'Donor requested refund due to duplicate transfer');
-
+  controller.voidTransaction(txId, "Donor deposited to wrong account");
   const db = readDB();
-  const tx = db.transactions.find(t => t.id === txId);
-  const splits = db.transaction_splits.filter(s => s.transaction_id === txId);
+  const voidedTx = db.transactions.find(t => t.id === txId);
 
   assert(
-    tx && tx.status === 'VOIDED' && 
-    tx.reference_note === 'Original Clean Water Donation' && 
-    tx.void_reason === 'Donor requested refund due to duplicate transfer',
+    voidedTx.status === 'VOIDED' &&
+    voidedTx.reference_note === 'Special Jummah Collection for Orphanage' &&
+    voidedTx.void_reason === "Donor deposited to wrong account" &&
+    typeof voidedTx.voided_at === 'string',
     "Voiding preserves original reference note and stores void reason & timestamp"
   );
+
+  const childSplits = db.transaction_splits.filter(s => s.transaction_id === txId);
   assert(
-    splits.every(s => s.is_voided === true),
+    childSplits.every(s => s.is_voided === true),
     "Voiding transaction marks all child splits as is_voided: true"
   );
 } catch (err) {
-  assert(false, `Void preservation test failed: ${err.message}`);
+  assert(false, `Void transaction failed: ${err.message}`);
 }
 
-// Test case 7: Shariah fund restriction protection
+// Test case 7: Validate Fund Shariah Classification Protection
 try {
   const controller = new DatabaseController('ADMIN', 'user-sec-1');
-  const db = readDB();
-  const zakatFund = db.funds.find(f => f.name === 'Zakat');
-  controller.updateFund(zakatFund.id, { is_restricted: false });
-  assert(false, "Allowed Zakat fund to be reclassified as unrestricted!");
+  controller.updateFund('fund-zakat', { is_restricted: false });
+  assert(false, "Allowed Zakat to be reclassified as unrestricted");
 } catch (err) {
   assert(
     err.message.includes("Shariah compliance rules"),
@@ -187,56 +204,55 @@ try {
   );
 }
 
-// Test case 8: Admin self-demotion / last admin lockout guard (C2)
+// Test case 8: Protect against admin lockout / self-demotion (C2)
 try {
   const controller = new DatabaseController('ADMIN', 'user-sec-1');
-  // Attempt to demote own account when only one admin
-  controller.updateUser('user-sec-1', { role: 'AUDITOR' });
-  assert(false, "Allowed the last active Admin to demote themselves!");
+  controller.updateUser('user-sec-1', { role: 'REVIEWER' });
+  assert(false, "Allowed last admin to demote themselves!");
 } catch (err) {
   assert(
-    err.message.includes("Administrator"),
+    err.message.includes("last remaining active Administrator") || err.message.includes("cannot demote"),
     "Last Admin / Self-demotion guard successfully triggered"
   );
 }
 
-// Test case 9: Non-zero balance fund archiving prevention (M2)
+// Test case 9: Block archiving fund with active non-zero balance (M2)
 try {
   const controller = new DatabaseController('ADMIN', 'user-sec-1');
   controller.createTransaction({
     type: 'INCOME',
     status: 'BANKED',
-    method: 'CARD',
+    method: 'BANK_TRANSFER',
     totalAmount: 100.00,
     date: '2026-06-12',
     donorId: 'anonymous',
-    reference_note: 'Lillah Fund Active Balance Test',
+    reference_note: 'Lillah Operations',
     category: 'Donation',
     splits: [{ fund_id: 'fund-lillah', amount: 100.00 }]
   });
 
   controller.updateFund('fund-lillah', { is_archived: true });
-  assert(false, "Allowed fund with active balance to be archived!");
+  assert(false, "Allowed archiving fund with active balance!");
 } catch (err) {
   assert(
-    err.message.includes("Cannot archive fund") && err.message.includes("active balance"),
+    err.message.includes("active balance"),
     "Fund archiving blocked when active non-zero balance exists"
   );
 }
 
-// Test case 10: Atomic receipt number generation (C4 & H4)
+// Test case 10: Atomic receipt number generation on transaction create (C4 & H4)
 try {
   const controller = new DatabaseController('ADMIN', 'user-sec-1');
   const txId = controller.createTransaction({
     type: 'INCOME',
     status: 'BANKED',
-    method: 'CARD',
+    method: 'CASH',
     totalAmount: 120.00,
     date: '2026-06-12',
     donorId: 'anonymous',
-    reference_note: 'Madrasah Term Book Fee',
-    category: 'Madrasah Fees',
-    splits: [{ fund_id: 'fund-madrasah', amount: 120.00 }]
+    reference_note: 'Friday Collection',
+    category: 'Donation',
+    splits: [{ fund_id: 'fund-sadaqah', amount: 120.00 }]
   });
 
   const db = readDB();
@@ -246,55 +262,60 @@ try {
     `Atomic receipt number properly generated and saved on transaction (${tx?.receipt_number})`
   );
 } catch (err) {
-  assert(false, `Receipt generation failed: ${err.message}`);
+  assert(false, `Receipt number generation failed: ${err.message}`);
 }
 
-// Test case 11: Reconciled transaction cannot be banked or voided (H5)
+// Test case 11: Reconciled transaction cannot be voided or banked (H5)
 try {
   const controller = new DatabaseController('ADMIN', 'user-sec-1');
   const txId = controller.createTransaction({
     type: 'INCOME',
     status: 'PENDING',
     method: 'CASH',
-    totalAmount: 35.00,
+    totalAmount: 50.00,
     date: '2026-06-12',
     donorId: 'anonymous',
-    reference_note: 'Cash Box Collection',
+    reference_note: 'Locked test cash',
     category: 'Donation',
-    splits: [{ fund_id: 'fund-lillah', amount: 35.00 }]
+    splits: [{ fund_id: 'fund-sadaqah', amount: 50.00 }]
   });
 
   controller.reconcileTransaction(txId);
-
+  
   let voidBlocked = false;
   try {
-    controller.voidTransaction(txId, "Try to void locked tx");
+    controller.voidTransaction(txId, 'Trying to void locked tx');
   } catch (e) {
-    voidBlocked = true;
+    voidBlocked = e.message.includes('locked');
   }
 
   let bankBlocked = false;
   try {
     controller.depositCash(txId);
   } catch (e) {
-    bankBlocked = true;
+    bankBlocked = e.message.includes('locked');
   }
 
-  assert(voidBlocked && bankBlocked, "Reconciled & locked transaction cannot be voided or banked");
+  assert(
+    voidBlocked && bankBlocked,
+    "Reconciled & locked transaction cannot be voided or banked"
+  );
 } catch (err) {
-  assert(false, `Reconcile lock test failed: ${err.message}`);
+  assert(false, `Reconcile lock check failed: ${err.message}`);
 }
 
-// Test case 12: Split total cent precision validation (H6)
+// Test case 12: Cent precision split validation caught mismatch (H6)
 try {
   const controller = new DatabaseController('ADMIN', 'user-sec-1');
   controller.createTransaction({
     type: 'INCOME',
     status: 'BANKED',
-    method: 'CARD',
+    method: 'BANK_TRANSFER',
     totalAmount: 100.00,
     date: '2026-06-12',
     donorId: 'anonymous',
+    reference_note: 'Split total mismatch test',
+    category: 'Donation',
     splits: [
       { fund_id: 'fund-lillah', amount: 50.00 },
       { fund_id: 'fund-sadaqah', amount: 49.95 }
@@ -342,6 +363,54 @@ try {
   );
 } catch (err) {
   assert(false, `Donor creation failed: ${err.message}`);
+}
+
+// Test case 15: Schema Validator Utility Unit Tests
+try {
+  let threwTx = false;
+  try {
+    validateTransactionPayload({ type: 'INVALID_TYPE', totalAmount: -10 });
+  } catch (e) {
+    threwTx = true;
+  }
+
+  let threwDonor = false;
+  try {
+    validateDonorPayload({ name: 'Test Donor', email: 'not-an-email', giftAidEligible: true });
+  } catch (e) {
+    threwDonor = true;
+  }
+
+  assert(threwTx && threwDonor, "Schema validator caught malformed transaction type and invalid donor email");
+} catch (err) {
+  assert(false, `Validator test failed: ${err.message}`);
+}
+
+// Test case 16: In-Memory Sliding Window Rate Limiter
+try {
+  const testIp = '192.168.1.100';
+  for (let i = 0; i < 5; i++) {
+    checkRateLimit(`test:${testIp}`, 5, 5000);
+  }
+  const blocked = checkRateLimit(`test:${testIp}`, 5, 5000);
+  assert(!blocked.isAllowed && blocked.remaining === 0, "Rate limiter correctly blocked 6th request exceeding quota");
+} catch (err) {
+  assert(false, `Rate limit test failed: ${err.message}`);
+}
+
+// Test case 17: Granular RBAC Permissions Matrix
+try {
+  const adminCanWrite = hasPermission('ADMIN', 'write:transactions');
+  const reviewerCanRead = hasPermission('REVIEWER', 'read:transactions');
+  const reviewerCannotWrite = !hasPermission('REVIEWER', 'write:transactions');
+  const auditorCanExport = hasPermission('AUDITOR', 'export:reports');
+
+  assert(
+    adminCanWrite && reviewerCanRead && reviewerCannotWrite && auditorCanExport,
+    "Granular RBAC permissions properly verified for ADMIN, REVIEWER, and AUDITOR"
+  );
+} catch (err) {
+  assert(false, `RBAC permission test failed: ${err.message}`);
 }
 
 console.log("--------------------------------------------------");

@@ -1,38 +1,46 @@
-import { NextResponse } from 'next/server';
 import { DatabaseController } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { apiSuccess, apiError } from '@/lib/response';
+import { validateUserPayload } from '@/lib/validation';
+import { logger } from '@/lib/logger';
 
 export async function GET(request) {
   const user = getAuthenticatedUser(request);
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
 
   if (user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'Forbidden: Admins only' }, { status: 403 });
+    return apiError('Forbidden: Admins only', 403, { code: 'FORBIDDEN' });
   }
 
   const controller = new DatabaseController(user.role, user.id);
   const users = controller.getUsers();
-  return NextResponse.json(users);
+  return apiSuccess(users);
 }
 
 export async function POST(request) {
   const user = getAuthenticatedUser(request);
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
 
   if (user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'Forbidden: Admins only' }, { status: 403 });
+    return apiError('Forbidden: Admins only', 403, { code: 'FORBIDDEN' });
   }
 
   try {
-    const { email, password, role, name } = await request.json();
+    const body = await request.json();
+    validateUserPayload(body, false);
+
+    const { email, password, role, name } = body;
     const controller = new DatabaseController(user.role, user.id);
     const newUser = controller.createUser({ email, password, role, name });
-    return NextResponse.json(newUser, { status: 201 });
+
+    logger.info('New user account created', { newUserId: newUser.id, role: newUser.role, createdBy: user.id });
+    return apiSuccess(newUser, { status: 201, message: 'User created successfully' });
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    logger.warn('Failed to create user', { error: err.message, userId: user.id });
+    return apiError(err.message, 400, { code: 'VALIDATION_ERROR' });
   }
 }

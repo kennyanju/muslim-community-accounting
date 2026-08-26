@@ -31,7 +31,8 @@ export default function Login() {
     // 2. Fetch from server to get edge cookie or latest DB config
     fetch('/api/organisation')
       .then(res => res.json())
-      .then(data => {
+      .then(body => {
+        const data = body.data || body;
         if (data && data.name) {
           setOrg(data);
           try {
@@ -54,12 +55,14 @@ export default function Login() {
         body: JSON.stringify({ email: email.trim(), password })
       });
 
-      const data = await res.json();
+      const body = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Authentication failed. Please check your credentials.');
+        const errMsg = body?.error?.message || body?.error || 'Authentication failed. Please check your credentials.';
+        throw new Error(errMsg);
       }
 
+      const data = body.data || body;
       if (data && data.organisation && data.organisation.name) {
         try {
           localStorage.setItem('masjid_org_profile', JSON.stringify(data.organisation));
@@ -109,10 +112,11 @@ export default function Login() {
 
         <form onSubmit={handleLogin}>
           <div className="form-group" style={{ marginBottom: '18px' }}>
-            <label style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '6px', color: 'var(--text-secondary)' }}>
+            <label htmlFor="login-email" style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '6px', color: 'var(--text-secondary)' }}>
               Email Address
             </label>
             <input 
+              id="login-email"
               type="email" 
               placeholder="e.g. secretary@yourmasjid.org.uk" 
               value={email} 
@@ -125,7 +129,7 @@ export default function Login() {
 
           <div className="form-group" style={{ marginBottom: '22px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-              <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+              <label htmlFor="login-password" style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
                 Password
               </label>
               <button 
@@ -137,6 +141,7 @@ export default function Login() {
               </button>
             </div>
             <input 
+              id="login-password"
               type={showPassword ? "text" : "password"} 
               placeholder="Enter your password" 
               value={password} 
@@ -151,12 +156,13 @@ export default function Login() {
             className="btn btn-primary btn-block" 
             disabled={loading}
             style={{ padding: '12px', fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+            id="btn-login-submit"
           >
             {loading ? (
               <span>Authenticating...</span>
             ) : (
               <>
-                <span>🔒</span>
+                <span aria-hidden="true">🔒</span>
                 <span>Sign In Securely</span>
               </>
             )}
@@ -165,7 +171,7 @@ export default function Login() {
 
         <div style={{ marginTop: '24px', padding: '14px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
           <strong style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>🛡️ Self-Hosted Security</strong>
-          All ledger sessions are protected via cryptographically signed tokens and strict server-side permissions. Default initial admin: <code style={{ color: 'var(--primary)' }}>secretary@bsmc.org.uk</code>
+          All ledger sessions are protected via cryptographically signed tokens and strict server-side permissions. Initial admin: <code style={{ color: 'var(--primary)' }}>secretary@bsmc.org.uk</code>
         </div>
       </div>
     </div>

@@ -1,34 +1,44 @@
-import { NextResponse } from 'next/server';
 import { DatabaseController } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { apiSuccess, apiError } from '@/lib/response';
+import { validateFundPayload } from '@/lib/validation';
+import { logger } from '@/lib/logger';
 
 export async function GET(request) {
   const user = getAuthenticatedUser(request);
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
 
   const controller = new DatabaseController(user.role, user.id);
   const funds = controller.getFunds();
-  return NextResponse.json(funds);
+  return apiSuccess(funds, {
+    headers: { 'Cache-Control': 'private, no-cache' }
+  });
 }
 
 export async function POST(request) {
   const user = getAuthenticatedUser(request);
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
 
   if (user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'Forbidden: Admins only' }, { status: 403 });
+    return apiError('Forbidden: Admins only', 403, { code: 'FORBIDDEN' });
   }
 
   try {
-    const { name, is_restricted, description } = await request.json();
+    const body = await request.json();
+    validateFundPayload(body, false);
+
+    const { name, is_restricted, description } = body;
     const controller = new DatabaseController(user.role, user.id);
     const newFund = controller.createFund({ name, is_restricted, description });
-    return NextResponse.json(newFund, { status: 201 });
+
+    logger.info('Fund created', { fundId: newFund.id, name: newFund.name, userId: user.id });
+    return apiSuccess(newFund, { status: 201, message: 'Fund created successfully' });
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    logger.warn('Failed to create fund', { error: err.message, userId: user.id });
+    return apiError(err.message, 400, { code: 'VALIDATION_ERROR' });
   }
 }

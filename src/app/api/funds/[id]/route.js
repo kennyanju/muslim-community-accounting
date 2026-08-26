@@ -1,25 +1,32 @@
-import { NextResponse } from 'next/server';
 import { DatabaseController } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { apiSuccess, apiError } from '@/lib/response';
+import { validateFundPayload } from '@/lib/validation';
+import { logger } from '@/lib/logger';
 
 export async function PUT(request, { params }) {
   const user = getAuthenticatedUser(request);
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
 
   if (user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'Forbidden: Admins only' }, { status: 403 });
+    return apiError('Forbidden: Admins only', 403, { code: 'FORBIDDEN' });
   }
 
   const { id } = await params;
 
   try {
     const body = await request.json();
+    validateFundPayload(body, true);
+
     const controller = new DatabaseController(user.role, user.id);
     const updated = controller.updateFund(id, body);
-    return NextResponse.json(updated);
+
+    logger.info('Fund updated', { fundId: id, changes: body, userId: user.id });
+    return apiSuccess(updated, { message: 'Fund updated successfully' });
   } catch (err) {
-    return NextResponse.json({ error: err.message }, { status: 400 });
+    logger.warn('Failed to update fund', { fundId: id, error: err.message, userId: user.id });
+    return apiError(err.message, 400, { code: 'VALIDATION_ERROR' });
   }
 }

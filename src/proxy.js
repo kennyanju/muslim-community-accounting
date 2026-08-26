@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 const SESSION_COOKIE_NAME = 'masjid_session';
 
-export function middleware(request) {
+export function proxy(request) {
   const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME);
   const token = sessionCookie?.value || sessionCookie;
   const hasSession = !!token && typeof token === 'string' && token.length > 20;
@@ -14,12 +14,16 @@ export function middleware(request) {
     pathname === '/login' ||
     pathname === '/api/auth/login' ||
     pathname === '/api/auth/logout' ||
-    pathname === '/api/organisation';
+    pathname === '/api/organisation' ||
+    pathname === '/api/docs';
 
   // If path is API and not public, require session cookie
   if (pathname.startsWith('/api/')) {
     if (!isPublicPath && !hasSession) {
-      return NextResponse.json({ error: 'Unauthorized: Authentication required' }, { status: 401 });
+      return NextResponse.json(
+        { success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } },
+        { status: 401 }
+      );
     }
     return NextResponse.next();
   }

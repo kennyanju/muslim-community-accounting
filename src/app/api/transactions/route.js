@@ -1,11 +1,13 @@
-import { NextResponse } from 'next/server';
 import { readDB, DatabaseController } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
+import { apiSuccess, apiError } from '@/lib/response';
+import { validateTransactionPayload, sanitizePagination } from '@/lib/validation';
+import { logger } from '@/lib/logger';
 
 export async function GET(request) {
   const user = getAuthenticatedUser(request);
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
 
   const { searchParams } = new URL(request.url);
@@ -18,6 +20,7 @@ export async function GET(request) {
   const search = searchParams.get('search')?.toLowerCase();
   const jummahOnly = searchParams.get('jummahOnly') === 'true';
   const format = searchParams.get('format');
+  const paginate = searchParams.get('paginate') === 'true';
 
   const db = readDB();
   
@@ -127,21 +130,38 @@ export async function GET(request) {
     });
   }
 
-  return NextResponse.json(result);
+  if (paginate) {
+    const { page, pageSize, offset } = sanitizePagination(searchParams, 15, 100);
+    const paginated = result.slice(offset, offset + pageSize);
+    return apiSuccess(paginated, {
+      meta: {
+        total: result.length,
+        page,
+        pageSize,
+        totalPages: Math.ceil(result.length / pageSize)
+      }
+    });
+  }
+
+  return apiSuccess(result, {
+    meta: { total: result.length }
+  });
 }
 
 export async function POST(request) {
   const user = getAuthenticatedUser(request);
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
   
   if (user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'Forbidden: Admins only' }, { status: 403 });
+    return apiError('Forbidden: Admins only', 403, { code: 'FORBIDDEN' });
   }
 
   try {
     const body = await request.json();
+    validateTransactionPayload(body);
+
     const { 
       type, 
       status, 
@@ -176,10 +196,11 @@ export async function POST(request) {
       notes
     });
 
-    return NextResponse.json({ success: true, transactionId }, { status: 201 });
+    logger.info('Transaction recorded', { transactionId, type, totalAmount, userId: user.id });
+    return apiSuccess({ transactionId }, { status: 201, message: 'Transaction recorded successfully' });
 
   } catch (error) {
-    console.error('Transaction creation failed:', error.message);
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    logger.warn('Transaction creation failed', { error: error.message, userId: user.id });
+    return apiError(error.message, 400, { code: 'TRANSACTION_ERROR' });
   }
 }

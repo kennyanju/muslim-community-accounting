@@ -1,8 +1,10 @@
 import crypto from 'crypto';
+import { config } from './config.js';
+import { readDB } from './db.js';
 
-const SESSION_COOKIE_NAME = 'masjid_session';
-const SESSION_SECRET = process.env.SESSION_SECRET || 'masjid-accounting-secret-key-change-in-prod-2026';
-const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days in seconds
+const SESSION_COOKIE_NAME = config.session.cookieName;
+const SESSION_SECRET = config.session.secret;
+const SESSION_MAX_AGE = config.session.maxAge;
 
 /**
  * Hash a password using PBKDF2 with a random salt (universally supported across Node and Cloudflare workerd)
@@ -106,8 +108,6 @@ export function verifySessionToken(token) {
   }
 }
 
-import { readDB } from './db.js';
-
 /**
  * Get current authenticated user from Next.js request cookies and verify active database status
  */
@@ -115,10 +115,10 @@ export function getAuthenticatedUser(request) {
   let token = null;
 
   // Check request cookies (Next.js Request or NextRequest)
-  if (request.cookies && typeof request.cookies.get === 'function') {
+  if (request?.cookies && typeof request.cookies.get === 'function') {
     const cookieObj = request.cookies.get(SESSION_COOKIE_NAME);
     token = cookieObj?.value || cookieObj;
-  } else if (request.headers && typeof request.headers.get === 'function') {
+  } else if (request?.headers && typeof request.headers.get === 'function') {
     const cookieHeader = request.headers.get('cookie');
     if (cookieHeader) {
       const match = cookieHeader.split(';').map(c => c.trim()).find(c => c.startsWith(`${SESSION_COOKIE_NAME}=`));
@@ -152,10 +152,27 @@ export function getAuthenticatedUser(request) {
 }
 
 /**
+ * RBAC Granular Permissions Checker
+ */
+export const ROLE_PERMISSIONS = {
+  ADMIN: ['*'],
+  REVIEWER: ['read:all', 'export:reports', 'print:receipts'],
+  AUDITOR: ['read:all', 'export:reports', 'read:audits', 'print:receipts'],
+};
+
+export function hasPermission(role, permission) {
+  if (!role) return false;
+  const perms = ROLE_PERMISSIONS[role] || [];
+  if (perms.includes('*')) return true;
+  if (perms.includes('read:all') && permission.startsWith('read:')) return true;
+  return perms.includes(permission);
+}
+
+/**
  * Build Set-Cookie header string for session
  */
 export function buildSessionCookie(token) {
-  const isProd = process.env.NODE_ENV === 'production';
+  const isProd = config.isProd;
   const cookieFlags = [
     `${SESSION_COOKIE_NAME}=${token}`,
     'Path=/',
