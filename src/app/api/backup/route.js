@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server';
-import { DatabaseController } from '@/lib/db';
+import { DatabaseController, DISPLAY_SAFE_ORG_FIELDS } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
+import { guardRateLimit } from '@/lib/rateLimit';
+import { config } from '@/lib/config';
 import { logger } from '@/lib/logger';
 
 export async function GET(request) {
@@ -12,6 +13,12 @@ export async function GET(request) {
 
   if (user.role !== 'ADMIN') {
     return apiError('Forbidden: Admins only', 403, { code: 'FORBIDDEN' });
+  }
+
+  // Rate limit backup export
+  const rateGuard = guardRateLimit(request, 'backup_export', config.rateLimit.backupMaxAttempts, config.rateLimit.backupWindowMs, user.id);
+  if (!rateGuard.isAllowed) {
+    return rateGuard.errorResponse;
   }
 
   try {
@@ -25,6 +32,7 @@ export async function GET(request) {
 
     return new Response(JSON.stringify(backupData, null, 2), {
       headers: {
+        ...rateGuard.headers,
         'Content-Type': 'application/json',
         'Content-Disposition': `attachment; filename=${shortName}_Financial_Backup_${timestamp}.json`
       }
@@ -45,6 +53,12 @@ export async function POST(request) {
     return apiError('Forbidden: Admins only', 403, { code: 'FORBIDDEN' });
   }
 
+  // Rate limit backup restore
+  const rateGuard = guardRateLimit(request, 'backup_restore', config.rateLimit.backupMaxAttempts, config.rateLimit.backupWindowMs, user.id);
+  if (!rateGuard.isAllowed) {
+    return rateGuard.errorResponse;
+  }
+
   try {
     const backupData = await request.json();
     const controller = new DatabaseController(user.role, user.id);
@@ -52,9 +66,17 @@ export async function POST(request) {
 
     logger.info('Database backup restored', { userId: user.id });
 
-    const response = apiSuccess({ restored: true }, { message: 'Database restored successfully.' });
+    const response = apiSuccess({ restored: true }, { message: 'Database restored successfully.', headers: rateGuard.headers });
     if (backupData.organisation && backupData.organisation.name) {
-      const cookieVal = encodeURIComponent(JSON.stringify(backupData.organisation));
+      // Whitelist only display-safe fields to avoid PII exposure in non-httpOnly cookie
+      const displaySafeOrg = {};
+      DISPLAY_SAFE_ORG_FIELDS.forEach(field => {
+        if (backupData.organisation[field] !== undefined) {
+          displaySafeOrg[field] = backupData.organisation[field];
+        }
+      });
+
+      const cookieVal = encodeURIComponent(JSON.stringify(displaySafeOrg));
       response.cookies.set('masjid_org_pref', cookieVal, {
         path: '/',
         maxAge: 31536000,
@@ -79,13 +101,19 @@ export async function DELETE(request) {
     return apiError('Forbidden: Admins only', 403, { code: 'FORBIDDEN' });
   }
 
+  // Rate limit database reset
+  const rateGuard = guardRateLimit(request, 'backup_reset', config.rateLimit.backupMaxAttempts, config.rateLimit.backupWindowMs, user.id);
+  if (!rateGuard.isAllowed) {
+    return rateGuard.errorResponse;
+  }
+
   try {
     const controller = new DatabaseController(user.role, user.id);
     controller.resetDatabase(true);
 
     logger.info('Database reset to clean template', { userId: user.id });
 
-    const response = apiSuccess({ reset: true }, { message: 'Database reset to clean state successfully.' });
+    const response = apiSuccess({ reset: true }, { message: 'Database reset to clean state successfully.', headers: rateGuard.headers });
     response.cookies.delete('masjid_org_pref');
     return response;
   } catch (err) {

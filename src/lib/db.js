@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { hashPassword } from './auth.js';
+import { hashPassword, getSafeUser } from './auth.js';
+import { validateBackupPayload } from './validation.js';
 import initialDBData from '../data/db.json' with { type: 'json' };
 
 const dbPath = path.join(process.cwd(), 'src/data/db.json');
@@ -20,6 +21,10 @@ const DEFAULT_ORGANISATION = initialDBData?.organisation || {
 
 const ALLOWED_ORG_FIELDS = [
   'name', 'short_name', 'tagline', 'charity_number', 'address', 'email', 'phone', 'currency_symbol', 'country'
+];
+
+export const DISPLAY_SAFE_ORG_FIELDS = [
+  'name', 'short_name', 'tagline', 'currency_symbol'
 ];
 
 let inMemoryDB = JSON.parse(JSON.stringify(initialDBData));
@@ -72,9 +77,9 @@ export function getOrganisationFromRequest(request) {
     try {
       const decoded = JSON.parse(decodeURIComponent(cookieVal));
       if (decoded && typeof decoded === 'object' && decoded.name) {
-        // Whitelist only safe fields to prevent injection
+        // Whitelist only display-safe fields to prevent PII exposure in non-httpOnly cookies
         const sanitized = {};
-        ALLOWED_ORG_FIELDS.forEach(field => {
+        DISPLAY_SAFE_ORG_FIELDS.forEach(field => {
           if (decoded[field] !== undefined && typeof decoded[field] === 'string') {
             sanitized[field] = decoded[field].trim();
           }
@@ -248,8 +253,8 @@ export class DatabaseController {
   // -------------------------------------------------------------
   getUsers() {
     const db = readDB();
-    // Return users without exposing password hashes
-    return db.users.map(({ password_hash, ...rest }) => rest);
+    // Return safe users without exposing password hashes
+    return (db.users || []).map(u => getSafeUser(u)).filter(Boolean);
   }
 
   createUser({ email, password, role, name }) {
@@ -277,8 +282,7 @@ export class DatabaseController {
     this.logAudit('users', userId, 'INSERT', db);
 
     writeDB(db);
-    const { password_hash, ...safeUser } = newUser;
-    return safeUser;
+    return getSafeUser(newUser);
   }
 
   updateUser(id, { name, role, status, password }) {
@@ -312,18 +316,17 @@ export class DatabaseController {
     this.logAudit('users', id, 'UPDATE', db);
 
     writeDB(db);
-    const { password_hash, ...safeUser } = user;
-    return safeUser;
+    return getSafeUser(user);
   }
 
   // -------------------------------------------------------------
-  // FUND BALANCES VIEW
+  // FUND BALANCES VIEW (Optimized Single-Pass In-Memory Index Map: O(N + M))
   // -------------------------------------------------------------
   getBalances() {
     const db = readDB();
     const balancesMap = {};
     
-    // Initialize fund balances to 0
+    // Initialize fund balances to 0 in O(F)
     (db.funds || []).forEach(f => {
       balancesMap[f.id] = {
         fundId: f.id,
@@ -334,19 +337,25 @@ export class DatabaseController {
       };
     });
 
-    // Sum up splits of active transactions
+    // Build O(1) index map of active transactions and their direction in O(N)
+    const activeTxDirectionMap = new Map();
     (db.transactions || []).forEach(tx => {
-      if (tx.status === 'VOIDED' || tx.status === 'FAILED') return;
+      if (tx.status !== 'VOIDED' && tx.status !== 'FAILED') {
+        activeTxDirectionMap.set(tx.id, tx.type === 'INCOME');
+      }
+    });
+
+    // Single-pass accumulation over splits in O(M)
+    (db.transaction_splits || []).forEach(split => {
+      if (split.is_voided) return;
+      const isIncome = activeTxDirectionMap.get(split.transaction_id);
+      if (isIncome === undefined) return; // Transaction is voided or not active
       
-      const isIncome = tx.type === 'INCOME';
-      const splits = (db.transaction_splits || []).filter(s => s.transaction_id === tx.id && !s.is_voided);
-      
-      splits.forEach(split => {
-        if (balancesMap[split.fund_id]) {
-          const change = isIncome ? parseFloat(split.amount) : -parseFloat(split.amount);
-          balancesMap[split.fund_id].balance += change;
-        }
-      });
+      const fundBalance = balancesMap[split.fund_id];
+      if (fundBalance) {
+        const amt = parseFloat(split.amount) || 0;
+        fundBalance.balance += isIncome ? amt : -amt;
+      }
     });
 
     return Object.values(balancesMap);
@@ -605,12 +614,8 @@ export class DatabaseController {
 
   restoreBackup(backupData) {
     this.checkAdmin();
-    if (!backupData || typeof backupData !== 'object') {
-      throw new Error("Invalid backup data format.");
-    }
-    if (!Array.isArray(backupData.funds) || !Array.isArray(backupData.transactions)) {
-      throw new Error("Backup file is missing core tables (funds, transactions).");
-    }
+    // Deep schema validation before restore
+    validateBackupPayload(backupData);
 
     const currentDb = readDB();
 

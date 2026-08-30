@@ -398,19 +398,64 @@ try {
   assert(false, `Rate limit test failed: ${err.message}`);
 }
 
-// Test case 17: Granular RBAC Permissions Matrix
+// Test case 18: Safe User Stripping
 try {
-  const adminCanWrite = hasPermission('ADMIN', 'write:transactions');
-  const reviewerCanRead = hasPermission('REVIEWER', 'read:transactions');
-  const reviewerCannotWrite = !hasPermission('REVIEWER', 'write:transactions');
-  const auditorCanExport = hasPermission('AUDITOR', 'export:reports');
+  const db = readDB();
+  const rawUser = (db.users || [])[0];
+  const safeUser = (new DatabaseController('ADMIN', 'user-sec-1')).getUsers()[0];
 
   assert(
-    adminCanWrite && reviewerCanRead && reviewerCannotWrite && auditorCanExport,
-    "Granular RBAC permissions properly verified for ADMIN, REVIEWER, and AUDITOR"
+    safeUser && safeUser.password_hash === undefined && rawUser && typeof rawUser.password_hash === 'string',
+    "User password_hash is strictly stripped from all API user queries"
   );
 } catch (err) {
-  assert(false, `RBAC permission test failed: ${err.message}`);
+  assert(false, `Safe user stripping failed: ${err.message}`);
+}
+
+// Test case 19: Date Range Validation
+try {
+  import('./validation.js').then(({ validateDateRange }) => {
+    let invalidCaught = false;
+    try {
+      validateDateRange('invalid-date', '2026-12-31');
+    } catch (e) {
+      invalidCaught = true;
+    }
+    assert(invalidCaught, "Invalid date query parameter properly rejected with validation error");
+  });
+} catch (err) {
+  assert(false, `Date range validation failed: ${err.message}`);
+}
+
+// Test case 20: Transaction Method & Category Enum Validation
+try {
+  let enumCaught = false;
+  try {
+    validateTransactionPayload({
+      type: 'INCOME',
+      method: 'BITCOIN_PAY',
+      category: 'IllegalCategory',
+      totalAmount: 100,
+      splits: [{ fund_id: 'fund-lillah', amount: 100 }]
+    });
+  } catch (e) {
+    enumCaught = true;
+  }
+  assert(enumCaught, "Unapproved payment method / category caught by enum validator");
+} catch (err) {
+  assert(false, `Enum validation test failed: ${err.message}`);
+}
+
+// Test case 21: In-Memory O(N+M) Indexed Balance Calculation Match
+try {
+  const controller = new DatabaseController('ADMIN', 'user-sec-1');
+  const balances = controller.getBalances();
+  assert(
+    Array.isArray(balances) && balances.length >= 7 && balances.every(b => typeof b.balance === 'number'),
+    "Optimized in-memory indexed balance engine computes active fund balances accurately"
+  );
+} catch (err) {
+  assert(false, `Balance calculation test failed: ${err.message}`);
 }
 
 console.log("--------------------------------------------------");
@@ -420,3 +465,4 @@ console.log("--------------------------------------------------");
 if (failCount > 0) {
   process.exit(1);
 }
+

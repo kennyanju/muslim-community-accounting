@@ -1,4 +1,4 @@
-import { DatabaseController, getOrganisationFromRequest } from '@/lib/db';
+import { DatabaseController, getOrganisationFromRequest, DISPLAY_SAFE_ORG_FIELDS } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
 import { logger } from '@/lib/logger';
@@ -27,8 +27,15 @@ export async function PUT(request) {
 
     const response = apiSuccess(updated, { message: 'Organisation settings saved' });
     
-    // Set 1-year persistent cookie so organisation settings survive edge cold-starts and logouts
-    const cookieVal = encodeURIComponent(JSON.stringify(updated));
+    // Set 1-year persistent cookie containing only display-safe fields to protect internal contact/charity metadata
+    const displaySafeOrg = {};
+    DISPLAY_SAFE_ORG_FIELDS.forEach(field => {
+      if (updated[field] !== undefined) {
+        displaySafeOrg[field] = updated[field];
+      }
+    });
+
+    const cookieVal = encodeURIComponent(JSON.stringify(displaySafeOrg));
     response.cookies.set('masjid_org_pref', cookieVal, {
       path: '/',
       maxAge: 31536000, // 1 year in seconds

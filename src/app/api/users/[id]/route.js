@@ -11,7 +11,7 @@ export async function PUT(request, { params }) {
   }
 
   if (user.role !== 'ADMIN') {
-    return apiError('Forbidden: Admins only', 403, { code: 'FORBIDDEN' });
+    return apiError('Forbidden: Financial Secretary (Admin) only', 403, { code: 'FORBIDDEN' });
   }
 
   const { id } = await params;
@@ -20,8 +20,15 @@ export async function PUT(request, { params }) {
     const body = await request.json();
     validateUserPayload(body, true);
 
+    // Whitelist only permitted fields for updating user records
+    const sanitizedUpdate = {};
+    if (body.name !== undefined) sanitizedUpdate.name = String(body.name).trim();
+    if (body.role !== undefined) sanitizedUpdate.role = body.role;
+    if (body.status !== undefined) sanitizedUpdate.status = body.status;
+    if (body.password !== undefined && body.password.trim()) sanitizedUpdate.password = body.password.trim();
+
     const controller = new DatabaseController(user.role, user.id);
-    const updated = controller.updateUser(id, body);
+    const updated = controller.updateUser(id, sanitizedUpdate);
 
     logger.info('User updated', { targetUserId: id, modifiedBy: user.id });
     return apiSuccess(updated, { message: 'User updated successfully' });

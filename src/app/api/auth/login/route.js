@@ -1,54 +1,43 @@
 import { NextResponse } from 'next/server';
 import { readDB, getOrganisationFromRequest } from '@/lib/db';
-import { verifyPassword, createSessionToken, buildSessionCookie } from '@/lib/auth';
+import { verifyPassword, createSessionToken, buildSessionCookie, getSafeUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { guardRateLimit } from '@/lib/rateLimit';
 import { logger } from '@/lib/logger';
 import { config } from '@/lib/config';
 
 export async function POST(request) {
-  const ip = getClientIp(request);
-  const rate = checkRateLimit(`login:${ip}`, config.rateLimit.loginMaxAttempts, config.rateLimit.loginWindowMs);
+  const rateGuard = guardRateLimit(request, 'login', config.rateLimit.loginMaxAttempts, config.rateLimit.loginWindowMs);
 
-  if (!rate.isAllowed) {
-    logger.warn('Rate limit exceeded on login attempt', { ip, resetTime: rate.resetTime });
-    return apiError('Too many login attempts. Please try again later.', 429, {
-      code: 'RATE_LIMIT_EXCEEDED',
-      details: { retryAfterSeconds: rate.resetTime }
-    });
+  if (!rateGuard.isAllowed) {
+    logger.warn('Rate limit exceeded on login attempt', { resetTime: rateGuard.rate.resetTime });
+    return rateGuard.errorResponse;
   }
 
   try {
     const { email, password } = await request.json();
 
     if (!email || !password) {
-      return apiError('Email and password are required', 400, { code: 'INVALID_CREDENTIALS' });
+      return apiError('Email and password are required', 400, { code: 'INVALID_CREDENTIALS', headers: rateGuard.headers });
     }
 
     const db = readDB();
     const user = db.users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
 
     if (!user || user.status !== 'ACTIVE') {
-      logger.warn('Failed login attempt: inactive user or user not found', { email, ip });
-      return apiError('Account is inactive or credentials are invalid', 401, { code: 'UNAUTHORIZED' });
+      logger.warn('Failed login attempt: inactive user or user not found', { email });
+      return apiError('Account is inactive or credentials are invalid', 401, { code: 'UNAUTHORIZED', headers: rateGuard.headers });
     }
 
     const isMatch = verifyPassword(password, user.password_hash);
     if (!isMatch) {
-      logger.warn('Failed login attempt: incorrect password', { email, ip });
-      return apiError('Invalid email or password', 401, { code: 'INVALID_CREDENTIALS' });
+      logger.warn('Failed login attempt: incorrect password', { email });
+      return apiError('Invalid email or password', 401, { code: 'INVALID_CREDENTIALS', headers: rateGuard.headers });
     }
 
     const token = createSessionToken(user);
     const cookieHeader = buildSessionCookie(token);
-
-    const safeUser = {
-      id: user.id,
-      email: user.email,
-      name: user.name || user.email.split('@')[0],
-      role: user.role
-    };
-
+    const safeUser = getSafeUser(user);
     const org = getOrganisationFromRequest(request);
 
     logger.info('User logged in successfully', { userId: user.id, role: user.role });
@@ -56,7 +45,10 @@ export async function POST(request) {
     const response = apiSuccess({
       user: safeUser,
       organisation: org
-    }, { message: 'Authentication successful' });
+    }, { 
+      message: 'Authentication successful',
+      headers: rateGuard.headers
+    });
 
     response.headers.set('Set-Cookie', cookieHeader);
     return response;

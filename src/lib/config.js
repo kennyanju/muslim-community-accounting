@@ -15,7 +15,13 @@ export const config = {
 
   rateLimit: {
     loginWindowMs: 60 * 1000, // 1 minute
-    loginMaxAttempts: 10,
+    loginMaxAttempts: 5, // Tightened from 10 to 5 per minute
+    writeWindowMs: 60 * 1000,
+    writeMaxAttempts: 30, // For mutations (transactions, donors, funds)
+    exportWindowMs: 60 * 1000,
+    exportMaxAttempts: 15, // For heavy CSV & report exports
+    backupWindowMs: 60 * 1000,
+    backupMaxAttempts: 5, // For database restore/reset/backup
     apiWindowMs: 60 * 1000,
     apiMaxAttempts: 120,
   },

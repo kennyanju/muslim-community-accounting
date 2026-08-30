@@ -1,5 +1,3 @@
-import { NextResponse } from 'next/server';
-
 /**
  * Standardized API Response Envelope Helpers
  */
@@ -20,7 +18,7 @@ export function apiSuccess(data = null, options = {}) {
   if (meta) body.meta = meta;
   if (data !== null && data !== undefined) body.data = data;
 
-  return NextResponse.json(body, { status, headers });
+  return Response.json(body, { status, headers });
 }
 
 /**
@@ -42,5 +40,5 @@ export function apiError(message = 'An error occurred', status = 400, options = 
 
   if (details) body.error.details = details;
 
-  return NextResponse.json(body, { status, headers });
+  return Response.json(body, { status, headers });
 }

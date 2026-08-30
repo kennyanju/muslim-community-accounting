@@ -1,7 +1,9 @@
 import { readDB, DatabaseController } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
-import { validateTransactionPayload, sanitizePagination } from '@/lib/validation';
+import { validateTransactionPayload, validateDateRange, sanitizePagination } from '@/lib/validation';
+import { guardRateLimit } from '@/lib/rateLimit';
+import { config } from '@/lib/config';
 import { logger } from '@/lib/logger';
 
 export async function GET(request) {
@@ -17,35 +19,61 @@ export async function GET(request) {
   const category = searchParams.get('category');
   const dateFrom = searchParams.get('dateFrom');
   const dateTo = searchParams.get('dateTo');
-  const search = searchParams.get('search')?.toLowerCase();
+  const search = searchParams.get('search')?.toLowerCase().trim();
   const jummahOnly = searchParams.get('jummahOnly') === 'true';
   const format = searchParams.get('format');
   const paginate = searchParams.get('paginate') === 'true';
 
+  // Validate date range parameters
+  let dateRange;
+  try {
+    dateRange = validateDateRange(dateFrom, dateTo);
+  } catch (err) {
+    return apiError(err.message, 400, { code: 'INVALID_QUERY_PARAMETER', field: err.field });
+  }
+
+  // Rate limit heavy CSV exports
+  if (format === 'csv') {
+    const rateGuard = guardRateLimit(request, 'ledger_csv_export', config.rateLimit.exportMaxAttempts, config.rateLimit.exportWindowMs, user.id);
+    if (!rateGuard.isAllowed) {
+      return rateGuard.errorResponse;
+    }
+  }
+
   const db = readDB();
+
+  // Build O(1) in-memory index Maps for optimal hydration performance
+  const fundMap = new Map((db.funds || []).map(f => [f.id, f]));
+  const donorMap = new Map((db.donors || []).map(d => [d.id, d]));
+  const splitsByTxId = new Map();
+
+  (db.transaction_splits || []).forEach(split => {
+    let list = splitsByTxId.get(split.transaction_id);
+    if (!list) {
+      list = [];
+      splitsByTxId.set(split.transaction_id, list);
+    }
+    const fund = fundMap.get(split.fund_id);
+    list.push({
+      ...split,
+      fundName: fund ? fund.name : 'Unknown'
+    });
+  });
   
-  let result = db.transactions.map(tx => {
-    // Attach splits
-    const splits = db.transaction_splits.filter(s => s.transaction_id === tx.id);
-    
-    // Attach donor info
-    const donor = db.donors.find(d => d.id === tx.donor_id);
+  // Single-pass hydration using O(1) index Maps
+  let result = (db.transactions || []).map(tx => {
+    const splits = splitsByTxId.get(tx.id) || [];
+    const donor = donorMap.get(tx.donor_id);
     
     return {
       ...tx,
-      splits: splits.map(s => {
-        const fund = db.funds.find(f => f.id === s.fund_id);
-        return {
-          ...s,
-          fundName: fund ? fund.name : 'Unknown'
-        };
-      }),
+      splits,
       donorName: donor ? donor.name : 'Anonymous',
       gift_aid_eligible: donor ? donor.gift_aid_eligible : false
     };
   });
 
-  // Filters
+  // Query Filters
   if (type && type !== 'all') {
     result = result.filter(tx => tx.type === type.toUpperCase());
   }
@@ -58,19 +86,17 @@ export async function GET(request) {
     result = result.filter(tx => tx.category === category);
   }
 
-  if (dateFrom) {
-    const fromTime = new Date(dateFrom).getTime();
+  if (dateRange.fromTime) {
     result = result.filter(tx => {
       const txTime = new Date(tx.transaction_date).getTime();
-      return !isNaN(txTime) && !isNaN(fromTime) ? txTime >= fromTime : tx.transaction_date >= dateFrom;
+      return !isNaN(txTime) ? txTime >= dateRange.fromTime : tx.transaction_date >= dateFrom;
     });
   }
 
-  if (dateTo) {
-    const toTime = new Date(dateTo + (dateTo.length <= 10 ? 'T23:59:59.999Z' : '')).getTime();
+  if (dateRange.toTime) {
     result = result.filter(tx => {
       const txTime = new Date(tx.transaction_date).getTime();
-      return !isNaN(txTime) && !isNaN(toTime) ? txTime <= toTime : tx.transaction_date <= dateTo;
+      return !isNaN(txTime) ? txTime <= dateRange.toTime : tx.transaction_date <= dateTo;
     });
   }
 
@@ -155,7 +181,13 @@ export async function POST(request) {
   }
   
   if (user.role !== 'ADMIN') {
-    return apiError('Forbidden: Admins only', 403, { code: 'FORBIDDEN' });
+    return apiError('Forbidden: Financial Secretary (Admin) only', 403, { code: 'FORBIDDEN' });
+  }
+
+  // Rate limit transaction creation
+  const rateGuard = guardRateLimit(request, 'create_transaction', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
+  if (!rateGuard.isAllowed) {
+    return rateGuard.errorResponse;
   }
 
   try {
@@ -197,7 +229,7 @@ export async function POST(request) {
     });
 
     logger.info('Transaction recorded', { transactionId, type, totalAmount, userId: user.id });
-    return apiSuccess({ transactionId }, { status: 201, message: 'Transaction recorded successfully' });
+    return apiSuccess({ transactionId }, { status: 201, message: 'Transaction recorded successfully', headers: rateGuard.headers });
 
   } catch (error) {
     logger.warn('Transaction creation failed', { error: error.message, userId: user.id });

@@ -2,6 +2,8 @@ import { readDB, DatabaseController } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
 import { validateDonorPayload, sanitizePagination } from '@/lib/validation';
+import { guardRateLimit } from '@/lib/rateLimit';
+import { config } from '@/lib/config';
 import { logger } from '@/lib/logger';
 
 export async function GET(request) {
@@ -51,6 +53,12 @@ export async function POST(request) {
   if (user.role !== 'ADMIN') {
     return apiError('Forbidden: Financial Secretary (Admin) only', 403, { code: 'FORBIDDEN' });
   }
+
+  // Rate limit donor creation
+  const rateGuard = guardRateLimit(request, 'create_donor', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
+  if (!rateGuard.isAllowed) {
+    return rateGuard.errorResponse;
+  }
   
   try {
     const body = await request.json();
@@ -70,7 +78,7 @@ export async function POST(request) {
     });
 
     logger.info('Donor registered', { donorId, name, userId: user.id });
-    return apiSuccess({ id: donorId }, { status: 201, message: 'Donor registered successfully' });
+    return apiSuccess({ id: donorId }, { status: 201, message: 'Donor registered successfully', headers: rateGuard.headers });
   } catch (err) {
     logger.warn('Failed to register donor', { error: err.message, userId: user.id });
     return apiError(err.message, 400, { code: 'VALIDATION_ERROR' });

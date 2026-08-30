@@ -1,16 +1,39 @@
-import { NextResponse } from 'next/server';
 import { readDB } from '@/lib/db';
-import { getAuthenticatedUser } from '@/lib/auth';
+import { getAuthenticatedUser, requireRole } from '@/lib/auth';
+import { apiError } from '@/lib/response';
+import { validateDateRange } from '@/lib/validation';
+import { guardRateLimit } from '@/lib/rateLimit';
+import { config } from '@/lib/config';
 
 export async function GET(request) {
   const user = getAuthenticatedUser(request);
   if (!user) {
-    return NextResponse.json({ error: 'Unauthorized: Authentication required' }, { status: 401 });
+    return apiError('Unauthorized: Authentication required', 401, { code: 'UNAUTHORIZED' });
+  }
+
+  // Restrict sensitive donor Gift Aid PII export to Financial Secretary (Admin) and Auditor
+  const authCheck = requireRole(user, ['ADMIN', 'AUDITOR']);
+  if (!authCheck.ok) {
+    return apiError(authCheck.message, authCheck.status, { code: 'FORBIDDEN' });
+  }
+
+  // Rate limit export requests
+  const rateGuard = guardRateLimit(request, 'giftaid_export', config.rateLimit.exportMaxAttempts, config.rateLimit.exportWindowMs, user.id);
+  if (!rateGuard.isAllowed) {
+    return rateGuard.errorResponse;
   }
 
   const { searchParams } = new URL(request.url);
   const dateFrom = searchParams.get('dateFrom');
   const dateTo = searchParams.get('dateTo');
+
+  // Validate date range query params
+  let dateRange;
+  try {
+    dateRange = validateDateRange(dateFrom, dateTo);
+  } catch (err) {
+    return apiError(err.message, 400, { code: 'INVALID_QUERY_PARAMETER', field: err.field });
+  }
 
   const db = readDB();
   const org = db.organisation || {};
@@ -25,24 +48,25 @@ export async function GET(request) {
     tx.giftAid
   );
 
-  // M3: Timestamp-based date filtering
-  if (dateFrom) {
-    const fromTime = new Date(dateFrom).getTime();
+  // Timestamp-based date filtering using validated range
+  if (dateRange.fromTime) {
     eligibleTx = eligibleTx.filter(t => {
       const txTime = new Date(t.transaction_date).getTime();
-      return !isNaN(txTime) && !isNaN(fromTime) ? txTime >= fromTime : t.transaction_date >= dateFrom;
+      return !isNaN(txTime) ? txTime >= dateRange.fromTime : t.transaction_date >= dateFrom;
     });
   }
-  if (dateTo) {
-    const toTime = new Date(dateTo + (dateTo.length <= 10 ? 'T23:59:59.999Z' : '')).getTime();
+  if (dateRange.toTime) {
     eligibleTx = eligibleTx.filter(t => {
       const txTime = new Date(t.transaction_date).getTime();
-      return !isNaN(txTime) && !isNaN(toTime) ? txTime <= toTime : t.transaction_date <= dateTo;
+      return !isNaN(txTime) ? txTime <= dateRange.toTime : t.transaction_date <= dateTo;
     });
   }
 
+  // Pre-index donors by ID for O(1) lookup
+  const donorMap = new Map((db.donors || []).map(d => [d.id, d]));
+
   eligibleTx.forEach(tx => {
-    const donor = (db.donors || []).find(d => d.id === tx.donor_id);
+    const donor = donorMap.get(tx.donor_id);
     if (donor && donor.gift_aid_eligible && donor.address_line_1 && donor.postcode) {
       const rawName = (donor.name || '').trim();
       const parts = rawName.split(' ');
@@ -72,6 +96,7 @@ export async function GET(request) {
 
   return new Response(csvContent, {
     headers: {
+      ...rateGuard.headers,
       'Content-Type': 'text/csv',
       'Content-Disposition': `attachment; filename=HMRC_GiftAid_Schedule_${shortName}_${year}.csv`
     }

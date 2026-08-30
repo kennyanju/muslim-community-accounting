@@ -152,12 +152,21 @@ export function getAuthenticatedUser(request) {
 }
 
 /**
+ * Strip sensitive credentials (password_hash) from user objects
+ */
+export function getSafeUser(user) {
+  if (!user || typeof user !== 'object') return null;
+  const { password_hash, ...safeUser } = user;
+  return safeUser;
+}
+
+/**
  * RBAC Granular Permissions Checker
  */
 export const ROLE_PERMISSIONS = {
   ADMIN: ['*'],
   REVIEWER: ['read:all', 'export:reports', 'print:receipts'],
-  AUDITOR: ['read:all', 'export:reports', 'read:audits', 'print:receipts'],
+  AUDITOR: ['read:all', 'export:reports', 'export:giftaid', 'read:audits', 'print:receipts'],
 };
 
 export function hasPermission(role, permission) {
@@ -166,6 +175,27 @@ export function hasPermission(role, permission) {
   if (perms.includes('*')) return true;
   if (perms.includes('read:all') && permission.startsWith('read:')) return true;
   return perms.includes(permission);
+}
+
+export function requireRole(user, allowedRoles = ['ADMIN']) {
+  if (!user) {
+    return { ok: false, status: 401, message: 'Unauthorized: Authentication required' };
+  }
+  const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
+  if (!roles.includes(user.role)) {
+    return { ok: false, status: 403, message: `Forbidden: Access restricted to ${roles.join(' / ')}` };
+  }
+  return { ok: true };
+}
+
+export function requirePermission(user, permission) {
+  if (!user) {
+    return { ok: false, status: 401, message: 'Unauthorized: Authentication required' };
+  }
+  if (!hasPermission(user.role, permission)) {
+    return { ok: false, status: 403, message: `Forbidden: Missing required permission '${permission}'` };
+  }
+  return { ok: true };
 }
 
 /**

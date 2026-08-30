@@ -12,25 +12,25 @@ export default function Login() {
   const [errors, setErrors] = useState({});
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [org, setOrg] = useState({
-    name: 'Masjid Accounting',
-    short_name: 'Masjid',
-    tagline: 'Islamic Financial Management System'
+  const [org, setOrg] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cachedOrg = localStorage.getItem('masjid_org_profile');
+        if (cachedOrg) {
+          const parsed = JSON.parse(cachedOrg);
+          if (parsed && parsed.name) return parsed;
+        }
+      } catch (e) {}
+    }
+    return {
+      name: 'Masjid Accounting',
+      short_name: 'Masjid',
+      tagline: 'Islamic Financial Management System'
+    };
   });
 
   useEffect(() => {
-    // 1. Instantly check localStorage for immediate persistence without waiting
-    try {
-      const cachedOrg = localStorage.getItem('masjid_org_profile');
-      if (cachedOrg) {
-        const parsed = JSON.parse(cachedOrg);
-        if (parsed && parsed.name) {
-          setOrg(parsed);
-        }
-      }
-    } catch (e) {}
-
-    // 2. Fetch from server to get edge cookie or latest DB config
+    // Fetch from server to get edge cookie or latest DB config
     fetch('/api/organisation')
       .then(res => res.json())
       .then(body => {
