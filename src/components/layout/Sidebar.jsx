@@ -2,9 +2,17 @@
 
 import React from 'react';
 import { useApp } from '@/context/AppContext';
+import { useWindowResize } from '@/hooks/usePerformanceHooks';
 
 export default function Sidebar({ isOpen, onClose }) {
   const { activeTab, setActiveTab, user, org, handleLogout } = useApp();
+
+  // Auto-close mobile drawer on desktop resize with throttled listener
+  useWindowResize(() => {
+    if (isOpen && typeof window !== 'undefined' && window.innerWidth >= 1024) {
+      if (onClose) onClose();
+    }
+  }, 150);
 
   const handleNavClick = (tab) => {
     setActiveTab(tab);

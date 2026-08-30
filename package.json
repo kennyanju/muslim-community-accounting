@@ -8,7 +8,9 @@
     "build": "next build",
     "start": "next start",
     "reset-db": "node scripts/reset_db.js",
-    "lint": "eslint"
+    "lint": "eslint",
+    "analyze": "ANALYZE=true next build --webpack",
+    "check-budget": "node scripts/check_budgets.js"
   },
   "dependencies": {
     "next": "16.2.11",
@@ -16,11 +18,10 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@next/bundle-analyzer": "^16.3.3",
     "@opennextjs/cloudflare": "^1.20.2",
-    "@tailwindcss/postcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
-    "tailwindcss": "^4",
     "wrangler": "^4.125.0"
   }
 }

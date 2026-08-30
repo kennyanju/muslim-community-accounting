@@ -1,66 +1,11 @@
 @import '../styles/theme.css';
 
-/* Core Design System for BSMC Financial Management System */
+/* Core Design System for Masjid Financial Management System */
 
-/* 1. Theme Variables & Base Setup */
+/* Supplemental Token Aliases */
 :root {
-  /* Font Families */
-  --font-heading: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-
-  /* Transitions */
-  --transition-fast: 0.15s ease;
-  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-
-  /* Border Radii */
-  --radius-sm: 6px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
-  --radius-xl: 30px;
-
-  /* Shadow Design */
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 8px 16px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.12);
-  
-  /* Color Scheme - Default Light Mode */
-  --bg-primary: #f4f6f9;
-  --bg-secondary: #ffffff;
-  --bg-sidebar: #0f172a;
-  --text-primary: #1e293b;
-  --text-secondary: #64748b;
-  --text-light: #94a3b8;
-  --border-color: #e2e8f0;
-  
-  /* Primary Accent & Semantic Colors */
-  --primary: #10b981; /* Emerald/Green representing Islamic Finance */
-  --primary-hover: #059669;
-  --primary-light: #ecfdf5;
-  --primary-glow: rgba(16, 185, 129, 0.15);
-  
-  --secondary: #6366f1; /* Indigo for actions/invoices */
-  --secondary-hover: #4f46e5;
-  
-  --danger: #ef4444;
-  --danger-hover: #dc2626;
-  --danger-light: #fef2f2;
-  
-  --warning: #f59e0b;
-  --warning-light: #fffbeb;
-  
-  --info: #0ea5e9;
-  --info-light: #f0f9ff;
-  
-  --success: #10b981;
-  
-  /* Glassmorphism Variables */
-  --glass-bg: rgba(255, 255, 255, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.5);
-  --glass-blur: blur(16px);
+  --text-light: var(--text-muted);
   --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.06);
-
-  color-scheme: light dark;
 }
 
 /* System Dark Mode Defaults */
@@ -845,12 +790,23 @@ body {
 
 .interactive-chart {
   width: 100%;
-  height: 100%;
+  height: auto;
   min-height: 200px;
+  aspect-ratio: 500 / 240;
+  display: block;
 }
 
 .donut-chart-body {
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.donut-chart {
+  aspect-ratio: 1 / 1;
+  max-width: 240px;
+  max-height: 240px;
 }
 
 /* SVG Chart Engine Styling */
@@ -953,6 +909,8 @@ body {
 .table-wrapper {
   width: 100%;
   overflow-x: auto;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 450px;
 }
 
 .ledger-table {

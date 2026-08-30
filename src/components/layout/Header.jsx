@@ -1,10 +1,18 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '@/context/AppContext';
+import { useScrollThrottled } from '@/hooks/usePerformanceHooks';
 
 export default function Header({ onOpenMobileMenu }) {
   const { activeTab, user, theme, handleThemeChange, openModal } = useApp();
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  // Throttled scroll listener for header elevation
+  useScrollThrottled(() => {
+    const scrolled = typeof window !== 'undefined' && window.scrollY > 12;
+    setIsScrolled(prev => (prev !== scrolled ? scrolled : prev));
+  }, 100);
 
   const getTitle = () => {
     switch (activeTab) {
@@ -19,7 +27,7 @@ export default function Header({ onOpenMobileMenu }) {
   };
 
   return (
-    <header className="main-header" aria-label="Page Header">
+    <header className={`main-header ${isScrolled ? 'header-scrolled' : ''}`} aria-label="Page Header">
       <div className="header-left">
         <button 
           type="button" 

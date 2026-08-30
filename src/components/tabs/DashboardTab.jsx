@@ -261,6 +261,8 @@ export default function DashboardTab() {
           <div className="chart-body">
             <svg 
               viewBox="0 0 500 240" 
+              width="500"
+              height="240"
               className="interactive-chart"
               role="img" 
               aria-label="6-month financial inflows vs outflows comparison chart"
@@ -279,7 +281,9 @@ export default function DashboardTab() {
           <div className="chart-body donut-chart-body">
             <svg 
               viewBox="0 0 240 240" 
-              className="interactive-chart"
+              width="240"
+              height="240"
+              className="interactive-chart donut-chart"
               role="img"
               aria-label="Fund allocation donut chart"
             >

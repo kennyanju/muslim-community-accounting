@@ -4,11 +4,15 @@ import './globals.css';
 const inter = Inter({
   subsets: ['latin'],
   variable: '--font-body',
+  display: 'swap',
+  preload: true,
 });
 
 const outfit = Outfit({
   subsets: ['latin'],
   variable: '--font-heading',
+  display: 'swap',
+  preload: true,
 });
 
 export const viewport = {
@@ -29,8 +33,15 @@ export const metadata = {
   },
   manifest: '/manifest.json',
   icons: {
-    icon: '/favicon.ico',
-    apple: '/favicon.ico',
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+    ],
   },
   openGraph: {
     title: 'Masjid Accounting — Islamic Financial Management System',
@@ -51,6 +62,8 @@ export default function RootLayout({ children }) {
       <head>
         <meta name="color-scheme" content="light dark" />
         <link rel="manifest" href="/manifest.json" />
+        <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <script
           dangerouslySetInnerHTML={{
             __html: `

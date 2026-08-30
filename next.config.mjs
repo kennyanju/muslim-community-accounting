@@ -1,7 +1,19 @@
+import withBundleAnalyzer from '@next/bundle-analyzer';
+
+const withAnalyzer = withBundleAnalyzer({
+  enabled: process.env.ANALYZE === 'true',
+});
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  images: {
+    formats: ['image/avif', 'image/webp'],
+  },
+  compiler: {
+    removeConsole: process.env.NODE_ENV === 'production' ? { exclude: ['error', 'warn'] } : false,
+  },
   async headers() {
     return [
       {
@@ -49,9 +61,27 @@ const nextConfig = {
             value: 'Content-Type, Authorization, Cookie'
           }
         ]
+      },
+      {
+        source: '/(icon.*|apple-touch-icon.png|favicon.ico)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=86400, stale-while-revalidate=604800'
+          }
+        ]
+      },
+      {
+        source: '/manifest.json',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=86400, stale-while-revalidate=604800'
+          }
+        ]
       }
     ];
   }
 };
 
-export default nextConfig;
+export default withAnalyzer(nextConfig);

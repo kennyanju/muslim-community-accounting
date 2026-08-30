@@ -5,11 +5,13 @@ import dynamic from 'next/dynamic';
 import { AppProvider, useApp } from '@/context/AppContext';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
-import DashboardTab from '@/components/tabs/DashboardTab';
 import ErrorBoundary from '@/components/common/ErrorBoundary';
 import { TableSkeleton, CardSkeleton } from '@/components/common/Skeleton';
 
-// Code-split heavy tabs with skeleton fallbacks
+// Code-split tabs with skeleton fallbacks
+const DashboardTab = dynamic(() => import('@/components/tabs/DashboardTab'), {
+  loading: () => <CardSkeleton count={3} />
+});
 const TransactionsTab = dynamic(() => import('@/components/tabs/TransactionsTab'), {
   loading: () => <TableSkeleton rows={8} columns={8} />
 });
@@ -26,17 +28,18 @@ const SettingsTab = dynamic(() => import('@/components/tabs/SettingsTab'), {
   loading: () => <CardSkeleton count={4} />
 });
 
-// Modals
-import TransactionModal from '@/components/modals/TransactionModal';
-import JummahModal from '@/components/modals/JummahModal';
-import DonorModal from '@/components/modals/DonorModal';
-import VoidModal from '@/components/modals/VoidModal';
-import FundModal from '@/components/modals/FundModal';
-import UserModal from '@/components/modals/UserModal';
+// Code-split modals on demand (loaded only when triggered by user)
+const TransactionModal = dynamic(() => import('@/components/modals/TransactionModal'), { ssr: false });
+const JummahModal = dynamic(() => import('@/components/modals/JummahModal'), { ssr: false });
+const DonorModal = dynamic(() => import('@/components/modals/DonorModal'), { ssr: false });
+const VoidModal = dynamic(() => import('@/components/modals/VoidModal'), { ssr: false });
+const FundModal = dynamic(() => import('@/components/modals/FundModal'), { ssr: false });
+const UserModal = dynamic(() => import('@/components/modals/UserModal'), { ssr: false });
+
 import Toast from '@/components/common/Toast';
 
 function MainApp() {
-  const { activeTab, setActiveTab, user, loading } = useApp();
+  const { activeTab, setActiveTab, user, loading, modals } = useApp();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [preloadedReceiptTx, setPreloadedReceiptTx] = useState(null);
 
@@ -97,25 +100,37 @@ function MainApp() {
         )}
       </main>
 
-      {/* Global Modals */}
-      <ErrorBoundary componentName="TransactionModal">
-        <TransactionModal />
-      </ErrorBoundary>
-      <ErrorBoundary componentName="JummahModal">
-        <JummahModal />
-      </ErrorBoundary>
-      <ErrorBoundary componentName="DonorModal">
-        <DonorModal />
-      </ErrorBoundary>
-      <ErrorBoundary componentName="VoidModal">
-        <VoidModal />
-      </ErrorBoundary>
-      <ErrorBoundary componentName="FundModal">
-        <FundModal />
-      </ErrorBoundary>
-      <ErrorBoundary componentName="UserModal">
-        <UserModal />
-      </ErrorBoundary>
+      {/* Global Modals - Loaded on demand only when opened */}
+      {modals?.transaction && (
+        <ErrorBoundary componentName="TransactionModal">
+          <TransactionModal />
+        </ErrorBoundary>
+      )}
+      {modals?.jummah && (
+        <ErrorBoundary componentName="JummahModal">
+          <JummahModal />
+        </ErrorBoundary>
+      )}
+      {modals?.donor && (
+        <ErrorBoundary componentName="DonorModal">
+          <DonorModal />
+        </ErrorBoundary>
+      )}
+      {modals?.voidTx && (
+        <ErrorBoundary componentName="VoidModal">
+          <VoidModal />
+        </ErrorBoundary>
+      )}
+      {modals?.fund && (
+        <ErrorBoundary componentName="FundModal">
+          <FundModal />
+        </ErrorBoundary>
+      )}
+      {modals?.user && (
+        <ErrorBoundary componentName="UserModal">
+          <UserModal />
+        </ErrorBoundary>
+      )}
 
       {/* Global Toast Notifications */}
       <Toast />

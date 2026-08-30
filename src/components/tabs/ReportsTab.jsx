@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
+import { useDebounce } from '@/hooks/usePerformanceHooks';
 import { formatCurrency } from '@/utils/formatters';
 
 export default function ReportsTab() {
@@ -10,24 +11,28 @@ export default function ReportsTab() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
+  // Debounce date inputs
+  const debouncedDateFrom = useDebounce(dateFrom, 250);
+  const debouncedDateTo = useDebounce(dateTo, 250);
+
   const filteredTx = useMemo(() => {
     let list = transactions.filter(t => t.status !== 'VOIDED' && t.status !== 'FAILED');
-    if (dateFrom) {
-      const fromTime = new Date(dateFrom).getTime();
+    if (debouncedDateFrom) {
+      const fromTime = new Date(debouncedDateFrom).getTime();
       list = list.filter(t => {
         const txTime = new Date(t.transaction_date).getTime();
-        return !isNaN(txTime) && !isNaN(fromTime) ? txTime >= fromTime : t.transaction_date >= dateFrom;
+        return !isNaN(txTime) && !isNaN(fromTime) ? txTime >= fromTime : t.transaction_date >= debouncedDateFrom;
       });
     }
-    if (dateTo) {
-      const toTime = new Date(dateTo + (dateTo.length <= 10 ? 'T23:59:59.999Z' : '')).getTime();
+    if (debouncedDateTo) {
+      const toTime = new Date(debouncedDateTo + (debouncedDateTo.length <= 10 ? 'T23:59:59.999Z' : '')).getTime();
       list = list.filter(t => {
         const txTime = new Date(t.transaction_date).getTime();
-        return !isNaN(txTime) && !isNaN(toTime) ? txTime <= toTime : t.transaction_date <= dateTo;
+        return !isNaN(txTime) && !isNaN(toTime) ? txTime <= toTime : t.transaction_date <= debouncedDateTo;
       });
     }
     return list;
-  }, [transactions, dateFrom, dateTo]);
+  }, [transactions, debouncedDateFrom, debouncedDateTo]);
 
   const pl = useMemo(() => {
     const income = {};
