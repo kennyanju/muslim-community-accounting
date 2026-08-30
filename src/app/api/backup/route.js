@@ -66,7 +66,7 @@ export async function POST(request) {
 
     logger.info('Database backup restored', { userId: user.id });
 
-    const response = apiSuccess({ restored: true }, { message: 'Database restored successfully.', headers: rateGuard.headers });
+    const responseHeaders = { ...rateGuard.headers };
     if (backupData.organisation && backupData.organisation.name) {
       // Whitelist only display-safe fields to avoid PII exposure in non-httpOnly cookie
       const displaySafeOrg = {};
@@ -77,14 +77,13 @@ export async function POST(request) {
       });
 
       const cookieVal = encodeURIComponent(JSON.stringify(displaySafeOrg));
-      response.cookies.set('masjid_org_pref', cookieVal, {
-        path: '/',
-        maxAge: 31536000,
-        sameSite: 'lax',
-        httpOnly: false
-      });
+      responseHeaders['Set-Cookie'] = `masjid_org_pref=${cookieVal}; Path=/; Max-Age=31536000; SameSite=Lax`;
     }
-    return response;
+
+    return Response.json(
+      { success: true, data: { restored: true }, message: 'Database restored successfully.' },
+      { status: 200, headers: responseHeaders }
+    );
   } catch (err) {
     logger.error('Failed to restore backup', { error: err.message, userId: user.id });
     return apiError(err.message, 400, { code: 'BACKUP_RESTORE_ERROR' });
@@ -113,9 +112,17 @@ export async function DELETE(request) {
 
     logger.info('Database reset to clean template', { userId: user.id });
 
-    const response = apiSuccess({ reset: true }, { message: 'Database reset to clean state successfully.', headers: rateGuard.headers });
-    response.cookies.delete('masjid_org_pref');
-    return response;
+    return Response.json(
+      { success: true, data: { reset: true }, message: 'Database reset to clean state successfully.' },
+      {
+        status: 200,
+        headers: {
+          ...rateGuard.headers,
+          // Clear the org display cookie by expiring it immediately
+          'Set-Cookie': 'masjid_org_pref=; Path=/; Max-Age=0; SameSite=Lax'
+        }
+      }
+    );
   } catch (err) {
     logger.error('Failed to reset database', { error: err.message, userId: user.id });
     return apiError(err.message, 400, { code: 'RESET_ERROR' });
