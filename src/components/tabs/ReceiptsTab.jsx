@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
+import { formatCurrency } from '@/utils/formatters';
 
 export default function ReceiptsTab({ preloadedTx }) {
   const { donors, org } = useApp();
@@ -19,8 +20,11 @@ export default function ReceiptsTab({ preloadedTx }) {
     ]
   });
 
+  const lastLoadedTxId = React.useRef(null);
+
   useEffect(() => {
-    if (preloadedTx) {
+    if (preloadedTx && preloadedTx.id !== lastLoadedTxId.current) {
+      lastLoadedTxId.current = preloadedTx.id;
       const donor = donors.find(d => d.id === preloadedTx.donor_id);
       const donorAddr = donor ? [donor.address_line_1, donor.address_line_2, donor.city, donor.postcode].filter(Boolean).join(', ') : 'Anonymous';
       const formattedNum = preloadedTx.receipt_number || `${(org?.short_name || 'BSMC').replace(/[^a-zA-Z0-9]/g, '')}-${preloadedTx.id.substring(0, 8)}`;
@@ -234,8 +238,8 @@ export default function ReceiptsTab({ preloadedTx }) {
                   <tr key={idx}>
                     <td>{item.desc}</td>
                     <td className="text-right">{item.qty}</td>
-                    <td className="text-right">{org.currency_symbol || '£'}{item.amount.toFixed(2)}</td>
-                    <td className="text-right">{org.currency_symbol || '£'}{(item.qty * item.amount).toFixed(2)}</td>
+                    <td className="text-right">{formatCurrency(item.amount, org.currency_symbol)}</td>
+                    <td className="text-right">{formatCurrency(item.qty * item.amount, org.currency_symbol)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -245,18 +249,18 @@ export default function ReceiptsTab({ preloadedTx }) {
               <div className="totals-block">
                 <div className="total-row">
                   <span>Total Amount:</span>
-                  <span>{org.currency_symbol || '£'}{(receiptDoc.items[0]?.qty * receiptDoc.items[0]?.amount || 0).toFixed(2)}</span>
+                  <span>{formatCurrency(receiptDoc.items[0]?.qty * receiptDoc.items[0]?.amount || 0, org.currency_symbol)}</span>
                 </div>
                 {receiptDoc.giftAid && (
                   <div className="total-row" style={{ color: '#10b981' }}>
                     <span>Gift Aid Claimable (25%):</span>
-                    <span>{org.currency_symbol || '£'}{(receiptDoc.items[0]?.qty * receiptDoc.items[0]?.amount * 0.25 || 0).toFixed(2)}</span>
+                    <span>{formatCurrency((receiptDoc.items[0]?.qty * receiptDoc.items[0]?.amount || 0) * 0.25, org.currency_symbol)}</span>
                   </div>
                 )}
                 <hr className="totals-hr" />
                 <div className="total-row grand-total-row">
                   <span>Total Received:</span>
-                  <span>{org.currency_symbol || '£'}{(receiptDoc.items[0]?.qty * receiptDoc.items[0]?.amount || 0).toFixed(2)}</span>
+                  <span>{formatCurrency(receiptDoc.items[0]?.qty * receiptDoc.items[0]?.amount || 0, org.currency_symbol)}</span>
                 </div>
               </div>
             </div>

@@ -2,12 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { validateClientLogin } from '@/lib/clientValidation';
 
 export default function Login() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [errors, setErrors] = useState({});
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [org, setOrg] = useState({
@@ -46,6 +48,15 @@ export default function Login() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
+    
+    // Client-side schema validation
+    const { isValid, errors: validationErrors } = validateClientLogin({ email: email.trim(), password });
+    if (!isValid) {
+      setErrors(validationErrors);
+      return;
+    }
+
+    setErrors({});
     setLoading(true);
 
     try {
@@ -69,7 +80,12 @@ export default function Login() {
         } catch (e) {}
       }
 
-      router.push('/');
+      // Check for redirect query param
+      const urlParams = new URLSearchParams(window.location.search);
+      const redirectPath = urlParams.get('redirect');
+      const targetUrl = redirectPath && redirectPath.startsWith('/') ? redirectPath : '/';
+
+      router.push(targetUrl);
       router.refresh();
     } catch (err) {
       setError(err.message);
@@ -104,27 +120,33 @@ export default function Login() {
         </div>
 
         {error && (
-          <div className="alert alert-warning" style={{ marginBottom: '20px', fontSize: '0.85rem', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="alert alert-warning" role="alert" style={{ marginBottom: '20px', fontSize: '0.85rem', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span>⚠️</span>
             <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleLogin}>
+        <form onSubmit={handleLogin} noValidate>
           <div className="form-group" style={{ marginBottom: '18px' }}>
             <label htmlFor="login-email" style={{ fontSize: '0.82rem', fontWeight: 600, display: 'block', marginBottom: '6px', color: 'var(--text-secondary)' }}>
               Email Address
             </label>
             <input 
               id="login-email"
+              name="email"
               type="email" 
+              autoComplete="email"
               placeholder="e.g. secretary@yourmasjid.org.uk" 
               value={email} 
-              onChange={e => setEmail(e.target.value)} 
+              onChange={e => {
+                setEmail(e.target.value);
+                if (errors.email) setErrors(prev => ({ ...prev, email: null }));
+              }} 
               required 
               autoFocus
               style={{ width: '100%' }}
             />
+            {errors.email && <span className="field-error">{errors.email}</span>}
           </div>
 
           <div className="form-group" style={{ marginBottom: '22px' }}>
@@ -142,20 +164,26 @@ export default function Login() {
             </div>
             <input 
               id="login-password"
+              name="password"
               type={showPassword ? "text" : "password"} 
+              autoComplete="current-password"
               placeholder="Enter your password" 
               value={password} 
-              onChange={e => setPassword(e.target.value)} 
+              onChange={e => {
+                setPassword(e.target.value);
+                if (errors.password) setErrors(prev => ({ ...prev, password: null }));
+              }} 
               required 
               style={{ width: '100%' }}
             />
+            {errors.password && <span className="field-error">{errors.password}</span>}
           </div>
 
           <button 
             type="submit" 
             className="btn btn-primary btn-block" 
             disabled={loading}
-            style={{ padding: '12px', fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+            style={{ minHeight: '44px', padding: '12px', fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             id="btn-login-submit"
           >
             {loading ? (

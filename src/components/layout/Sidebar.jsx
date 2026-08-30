@@ -31,14 +31,14 @@ export default function Sidebar({ isOpen, onClose }) {
           </div>
         </div>
 
-        <nav className="sidebar-menu" role="tablist">
+        <nav className="sidebar-menu" role="navigation" aria-label="Main App Sections">
           <button 
             type="button"
-            role="tab"
-            aria-selected={activeTab === 'dashboard'}
+            aria-current={activeTab === 'dashboard' ? 'page' : undefined}
             className={`menu-item ${activeTab === 'dashboard' ? 'active' : ''}`}
             onClick={() => handleNavClick('dashboard')}
             id="tab-btn-dashboard"
+            style={{ minHeight: '44px' }}
           >
             <span className="menu-icon" aria-hidden="true">📊</span>
             <span>Dashboard</span>
@@ -46,11 +46,11 @@ export default function Sidebar({ isOpen, onClose }) {
 
           <button 
             type="button"
-            role="tab"
-            aria-selected={activeTab === 'transactions'}
+            aria-current={activeTab === 'transactions' ? 'page' : undefined}
             className={`menu-item ${activeTab === 'transactions' ? 'active' : ''}`}
             onClick={() => handleNavClick('transactions')}
             id="tab-btn-transactions"
+            style={{ minHeight: '44px' }}
           >
             <span className="menu-icon" aria-hidden="true">📑</span>
             <span>Transactions</span>
@@ -58,11 +58,11 @@ export default function Sidebar({ isOpen, onClose }) {
 
           <button 
             type="button"
-            role="tab"
-            aria-selected={activeTab === 'donors'}
+            aria-current={activeTab === 'donors' ? 'page' : undefined}
             className={`menu-item ${activeTab === 'donors' ? 'active' : ''}`}
             onClick={() => handleNavClick('donors')}
             id="tab-btn-donors"
+            style={{ minHeight: '44px' }}
           >
             <span className="menu-icon" aria-hidden="true">👥</span>
             <span>Donors</span>
@@ -70,23 +70,23 @@ export default function Sidebar({ isOpen, onClose }) {
 
           <button 
             type="button"
-            role="tab"
-            aria-selected={activeTab === 'reports'}
+            aria-current={activeTab === 'reports' ? 'page' : undefined}
             className={`menu-item ${activeTab === 'reports' ? 'active' : ''}`}
             onClick={() => handleNavClick('reports')}
             id="tab-btn-reports"
+            style={{ minHeight: '44px' }}
           >
             <span className="menu-icon" aria-hidden="true">📈</span>
-            <span>Reports & P&L</span>
+            <span>Reports &amp; P&amp;L</span>
           </button>
 
           <button 
             type="button"
-            role="tab"
-            aria-selected={activeTab === 'receipts'}
+            aria-current={activeTab === 'receipts' ? 'page' : undefined}
             className={`menu-item ${activeTab === 'receipts' ? 'active' : ''}`}
             onClick={() => handleNavClick('receipts')}
             id="tab-btn-receipts"
+            style={{ minHeight: '44px' }}
           >
             <span className="menu-icon" aria-hidden="true">🧾</span>
             <span>Receipts</span>
@@ -95,11 +95,11 @@ export default function Sidebar({ isOpen, onClose }) {
           {user?.role === 'ADMIN' && (
             <button 
               type="button"
-              role="tab"
-              aria-selected={activeTab === 'settings'}
+              aria-current={activeTab === 'settings' ? 'page' : undefined}
               className={`menu-item ${activeTab === 'settings' ? 'active' : ''}`}
               onClick={() => handleNavClick('settings')}
               id="tab-btn-settings"
+              style={{ minHeight: '44px' }}
             >
               <span className="menu-icon" aria-hidden="true">⚙️</span>
               <span>Settings</span>
@@ -124,6 +124,7 @@ export default function Sidebar({ isOpen, onClose }) {
             title="Sign Out of Mosque Finance"
             aria-label="Sign Out"
             id="btn-logout"
+            style={{ minWidth: '44px', minHeight: '44px' }}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />

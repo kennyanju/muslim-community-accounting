@@ -8,10 +8,20 @@ export default function Toast() {
 
   if (!toasts || toasts.length === 0) return null;
 
+  // Show at most 4 toasts concurrently
+  const visibleToasts = toasts.slice(0, 4);
+
   return (
-    <div className="toast-container" role="region" aria-label="Notifications" aria-live="polite">
-      {toasts.map(toast => (
-        <div key={toast.id} className={`toast toast-${toast.type || 'info'}`}>
+    <div 
+      className="toast-container" 
+      role="region" 
+      aria-label="Notifications" 
+      aria-live="polite"
+      aria-atomic="false"
+      aria-relevant="additions text"
+    >
+      {visibleToasts.map(toast => (
+        <div key={toast.id} className={`toast toast-${toast.type || 'info'}`} role="status">
           <div className="toast-content">
             <span className="toast-icon" aria-hidden="true">
               {toast.type === 'success' && '✓'}
@@ -25,7 +35,7 @@ export default function Toast() {
             type="button" 
             className="toast-close" 
             onClick={() => removeToast(toast.id)}
-            aria-label="Close notification"
+            aria-label="Dismiss notification"
           >
             ×
           </button>

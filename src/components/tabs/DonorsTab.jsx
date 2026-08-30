@@ -3,6 +3,9 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import Pagination from '@/components/common/Pagination';
+import EmptyState from '@/components/common/EmptyState';
+import { useDebounce } from '@/hooks/useDebounce';
+import { formatCurrency } from '@/utils/formatters';
 
 export default function DonorsTab() {
   const { donors, transactions, org, user, openModal } = useApp();
@@ -11,6 +14,17 @@ export default function DonorsTab() {
   const [giftAidFilter, setGiftAidFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
+
+  // Debounce search query
+  const debouncedSearch = useDebounce(search, 250);
+
+  const resetFilters = () => {
+    setSearch('');
+    setGiftAidFilter('all');
+    setCurrentPage(1);
+  };
+
+  const isFiltered = debouncedSearch || giftAidFilter !== 'all';
 
   const donorContributions = useMemo(() => {
     const totals = {};
@@ -26,8 +40,8 @@ export default function DonorsTab() {
   const filteredDonors = useMemo(() => {
     let list = [...donors];
 
-    if (search) {
-      const s = search.toLowerCase();
+    if (debouncedSearch) {
+      const s = debouncedSearch.toLowerCase();
       list = list.filter(d => 
         d.name?.toLowerCase().includes(s) ||
         d.email?.toLowerCase().includes(s) ||
@@ -43,7 +57,7 @@ export default function DonorsTab() {
     }
 
     return list;
-  }, [donors, search, giftAidFilter]);
+  }, [donors, debouncedSearch, giftAidFilter]);
 
   const paginatedDonors = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
@@ -59,7 +73,7 @@ export default function DonorsTab() {
         </div>
         {user?.role === 'ADMIN' && (
           <div className="view-actions">
-            <button type="button" className="btn btn-primary" onClick={() => openModal('donor')}>
+            <button type="button" className="btn btn-primary" onClick={() => openModal('donor')} style={{ minHeight: '44px' }}>
               <span aria-hidden="true">+</span> Register Donor
             </button>
           </div>
@@ -96,24 +110,32 @@ export default function DonorsTab() {
 
       <div className="ledger-table-card glass-card">
         <div className="table-wrapper">
-          <table className="ledger-table table-perf">
-            <thead>
-              <tr>
-                <th>Donor Name</th>
-                <th>Email / Contact</th>
-                <th>Address</th>
-                <th>Postcode</th>
-                <th>Gift Aid Status</th>
-                <th>Lifetime Donations</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedDonors.length === 0 ? (
+          {paginatedDonors.length === 0 ? (
+            <EmptyState
+              icon={isFiltered ? '🔍' : '👥'}
+              title={isFiltered ? 'No Donors Matched Criteria' : 'No Registered Donors'}
+              description={
+                isFiltered
+                  ? 'No donor profile matched your search query or Gift Aid filter.'
+                  : 'Register regular donors and capture postal declarations for UK HMRC Gift Aid reclaims.'
+              }
+              actionLabel={isFiltered ? 'Clear Filters' : user?.role === 'ADMIN' ? '+ Register Donor' : null}
+              onAction={isFiltered ? resetFilters : user?.role === 'ADMIN' ? () => openModal('donor') : null}
+            />
+          ) : (
+            <table className="ledger-table table-perf">
+              <thead>
                 <tr>
-                  <td colSpan="6" className="empty-state">No matching donors found.</td>
+                  <th>Donor Name</th>
+                  <th>Email / Contact</th>
+                  <th>Address</th>
+                  <th>Postcode</th>
+                  <th>Gift Aid Status</th>
+                  <th>Lifetime Donations</th>
                 </tr>
-              ) : (
-                paginatedDonors.map(donor => (
+              </thead>
+              <tbody>
+                {paginatedDonors.map(donor => (
                   <tr key={donor.id}>
                     <td>
                       <strong>{donor.name}</strong>
@@ -148,21 +170,23 @@ export default function DonorsTab() {
                       )}
                     </td>
                     <td>
-                      <strong>{org.currency_symbol || '£'}{(donorContributions[donor.id] || 0).toFixed(2)}</strong>
+                      <strong>{formatCurrency(donorContributions[donor.id] || 0, org.currency_symbol)}</strong>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
 
-        <Pagination 
-          currentPage={currentPage}
-          totalItems={filteredDonors.length}
-          itemsPerPage={itemsPerPage}
-          onPageChange={setCurrentPage}
-        />
+        {filteredDonors.length > itemsPerPage && (
+          <Pagination 
+            currentPage={currentPage}
+            totalItems={filteredDonors.length}
+            itemsPerPage={itemsPerPage}
+            onPageChange={setCurrentPage}
+          />
+        )}
       </div>
     </section>
   );

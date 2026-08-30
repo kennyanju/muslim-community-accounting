@@ -4,20 +4,28 @@ import React, { useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { validateClientDonor } from '@/lib/clientValidation';
 
+const INITIAL_DONOR_FORM = {
+  name: '',
+  email: '',
+  address_line_1: '',
+  address_line_2: '',
+  city: '',
+  postcode: '',
+  giftAidEligible: false
+};
+
 export default function DonorModal() {
   const { modals, closeModal, fetchAPI, addToast, refreshData } = useApp();
 
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
-  const [form, setForm] = useState({
-    name: '',
-    email: '',
-    address_line_1: '',
-    address_line_2: '',
-    city: '',
-    postcode: '',
-    giftAidEligible: false
-  });
+  const [form, setForm] = useState(INITIAL_DONOR_FORM);
+
+  const handleClose = () => {
+    setErrors({});
+    setForm(INITIAL_DONOR_FORM);
+    closeModal('donor');
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -40,16 +48,7 @@ export default function DonorModal() {
       });
 
       addToast(`Donor "${form.name}" registered successfully.`, 'success');
-      closeModal('donor');
-      setForm({
-        name: '',
-        email: '',
-        address_line_1: '',
-        address_line_2: '',
-        city: '',
-        postcode: '',
-        giftAidEligible: false
-      });
+      handleClose();
       refreshData();
     } catch (err) {
       addToast(err.message, 'error');
@@ -65,18 +64,31 @@ export default function DonorModal() {
       <div className="modal-card glass-card">
         <div className="modal-header">
           <h3 id="donor-modal-title">👤 Register New Donor Profile</h3>
-          <button type="button" className="btn-icon" onClick={() => closeModal('donor')} aria-label="Close modal">✕</button>
+          <button 
+            type="button" 
+            className="btn-icon" 
+            onClick={handleClose} 
+            aria-label="Close modal"
+            style={{ minWidth: '44px', minHeight: '44px' }}
+          >
+            ✕
+          </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} noValidate>
           <div className="form-group">
             <label htmlFor="donor-name">Donor Full Name *</label>
             <input 
               id="donor-name"
+              name="name"
               type="text" 
+              autoComplete="name"
               placeholder="e.g. Dr. Majid Khan" 
               value={form.name} 
-              onChange={e => setForm({ ...form, name: e.target.value })} 
+              onChange={e => {
+                setForm({ ...form, name: e.target.value });
+                if (errors.name) setErrors(prev => ({ ...prev, name: null }));
+              }} 
               required 
             />
             {errors.name && <span className="field-error">{errors.name}</span>}
@@ -86,10 +98,15 @@ export default function DonorModal() {
             <label htmlFor="donor-email">Email Address (Optional)</label>
             <input 
               id="donor-email"
+              name="email"
               type="email" 
+              autoComplete="email"
               placeholder="e.g. majid.khan@example.com" 
               value={form.email} 
-              onChange={e => setForm({ ...form, email: e.target.value })} 
+              onChange={e => {
+                setForm({ ...form, email: e.target.value });
+                if (errors.email) setErrors(prev => ({ ...prev, email: null }));
+              }} 
             />
             {errors.email && <span className="field-error">{errors.email}</span>}
           </div>
@@ -100,6 +117,7 @@ export default function DonorModal() {
             <label className="checkbox-label">
               <input 
                 type="checkbox" 
+                name="giftAidEligible"
                 checked={form.giftAidEligible} 
                 onChange={e => setForm({ ...form, giftAidEligible: e.target.checked })} 
               />
@@ -111,10 +129,15 @@ export default function DonorModal() {
             <label htmlFor="donor-addr1">Address Line 1 {form.giftAidEligible ? '*' : '(Optional)'}</label>
             <input 
               id="donor-addr1"
+              name="address_line_1"
               type="text" 
+              autoComplete="address-line1"
               placeholder="House name / number and street" 
               value={form.address_line_1} 
-              onChange={e => setForm({ ...form, address_line_1: e.target.value })} 
+              onChange={e => {
+                setForm({ ...form, address_line_1: e.target.value });
+                if (errors.address_line_1) setErrors(prev => ({ ...prev, address_line_1: null }));
+              }} 
               required={form.giftAidEligible}
             />
             {errors.address_line_1 && <span className="field-error">{errors.address_line_1}</span>}
@@ -124,7 +147,9 @@ export default function DonorModal() {
             <label htmlFor="donor-addr2">Address Line 2 (Optional)</label>
             <input 
               id="donor-addr2"
+              name="address_line_2"
               type="text" 
+              autoComplete="address-line2"
               placeholder="Apartment, suite, unit, etc." 
               value={form.address_line_2} 
               onChange={e => setForm({ ...form, address_line_2: e.target.value })} 
@@ -136,7 +161,9 @@ export default function DonorModal() {
               <label htmlFor="donor-city">Town / City</label>
               <input 
                 id="donor-city"
+                name="city"
                 type="text" 
+                autoComplete="address-level2"
                 placeholder="e.g. Bristol" 
                 value={form.city} 
                 onChange={e => setForm({ ...form, city: e.target.value })} 
@@ -146,10 +173,15 @@ export default function DonorModal() {
               <label htmlFor="donor-postcode">UK Postcode {form.giftAidEligible ? '*' : '(Optional)'}</label>
               <input 
                 id="donor-postcode"
+                name="postcode"
                 type="text" 
+                autoComplete="postal-code"
                 placeholder="e.g. BS3 1AB" 
                 value={form.postcode} 
-                onChange={e => setForm({ ...form, postcode: e.target.value.toUpperCase() })} 
+                onChange={e => {
+                  setForm({ ...form, postcode: e.target.value.toUpperCase() });
+                  if (errors.postcode) setErrors(prev => ({ ...prev, postcode: null }));
+                }} 
                 required={form.giftAidEligible}
               />
               {errors.postcode && <span className="field-error">{errors.postcode}</span>}
@@ -157,10 +189,20 @@ export default function DonorModal() {
           </div>
 
           <div className="modal-actions">
-            <button type="button" className="btn btn-outline" onClick={() => closeModal('donor')}>
+            <button 
+              type="button" 
+              className="btn btn-outline" 
+              onClick={handleClose}
+              style={{ minHeight: '44px' }}
+            >
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary" disabled={submitting}>
+            <button 
+              type="submit" 
+              className="btn btn-primary" 
+              disabled={submitting}
+              style={{ minHeight: '44px' }}
+            >
               {submitting ? 'Registering...' : '💾 Save Donor Profile'}
             </button>
           </div>

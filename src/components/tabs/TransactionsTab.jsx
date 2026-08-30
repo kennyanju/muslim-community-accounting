@@ -3,9 +3,12 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import Pagination from '@/components/common/Pagination';
+import EmptyState from '@/components/common/EmptyState';
+import { useDebounce } from '@/hooks/useDebounce';
+import { formatCurrency, formatDate } from '@/utils/formatters';
 
 export default function TransactionsTab({ onLoadReceipt }) {
-  const { transactions, balances, org, user, fetchAPI, addToast, refreshData, openModal } = useApp();
+  const { transactions, balances, org, user, addToast, refreshData, openModal, optimisticBankDeposit, fetchAPI } = useApp();
 
   const [filterType, setFilterType] = useState('all');
   const [filterFund, setFilterFund] = useState('all');
@@ -17,6 +20,21 @@ export default function TransactionsTab({ onLoadReceipt }) {
   const [filterJummahOnly, setFilterJummahOnly] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
+
+  // Debounce search query to prevent UI freeze
+  const debouncedSearch = useDebounce(filterSearch, 250);
+
+  const resetAllFilters = () => {
+    setFilterType('all');
+    setFilterFund('all');
+    setFilterCategory('all');
+    setFilterStatus('all');
+    setFilterSearch('');
+    setFilterDateFrom('');
+    setFilterDateTo('');
+    setFilterJummahOnly(false);
+    setCurrentPage(1);
+  };
 
   const setQuickDateRange = (rangeType) => {
     const today = new Date();
@@ -41,6 +59,8 @@ export default function TransactionsTab({ onLoadReceipt }) {
     }
     setCurrentPage(1);
   };
+
+  const isFiltered = filterType !== 'all' || filterFund !== 'all' || filterCategory !== 'all' || filterStatus !== 'all' || debouncedSearch || filterDateFrom || filterDateTo || filterJummahOnly;
 
   const filteredTransactions = useMemo(() => {
     let list = [...transactions];
@@ -93,8 +113,8 @@ export default function TransactionsTab({ onLoadReceipt }) {
       );
     }
 
-    if (filterSearch) {
-      const s = filterSearch.toLowerCase();
+    if (debouncedSearch) {
+      const s = debouncedSearch.toLowerCase();
       list = list.filter(t => 
         t.reference_note?.toLowerCase().includes(s) ||
         t.description?.toLowerCase().includes(s) ||
@@ -106,21 +126,15 @@ export default function TransactionsTab({ onLoadReceipt }) {
     }
 
     return list;
-  }, [transactions, filterType, filterFund, filterCategory, filterStatus, filterDateFrom, filterDateTo, filterJummahOnly, filterSearch]);
+  }, [transactions, filterType, filterFund, filterCategory, filterStatus, filterDateFrom, filterDateTo, filterJummahOnly, debouncedSearch]);
 
   const paginatedTransactions = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
     return filteredTransactions.slice(start, start + itemsPerPage);
   }, [filteredTransactions, currentPage]);
 
-  const handleBankDeposit = async (txId) => {
-    try {
-      await fetchAPI(`/api/transactions/${txId}/bank`, { method: 'POST' });
-      addToast('Cash deposit marked as banked.', 'success');
-      refreshData();
-    } catch (err) {
-      addToast(err.message, 'error');
-    }
+  const handleBankDeposit = (txId) => {
+    optimisticBankDeposit(txId);
   };
 
   const handleReconcileLock = async (txId) => {
@@ -144,7 +158,7 @@ export default function TransactionsTab({ onLoadReceipt }) {
     if (filterFund !== 'all') url += `&fund=${filterFund}`;
     if (filterCategory !== 'all') url += `&category=${filterCategory}`;
     if (filterStatus !== 'all') url += `&status=${filterStatus}`;
-    if (filterSearch) url += `&search=${encodeURIComponent(filterSearch)}`;
+    if (debouncedSearch) url += `&search=${encodeURIComponent(debouncedSearch)}`;
     if (filterDateFrom) url += `&dateFrom=${filterDateFrom}`;
     if (filterDateTo) url += `&dateTo=${filterDateTo}`;
     if (filterJummahOnly) url += `&jummahOnly=true`;
@@ -159,7 +173,7 @@ export default function TransactionsTab({ onLoadReceipt }) {
           <p className="view-subtitle">Search, filter, allocate splits, and reconcile journal entries</p>
         </div>
         <div className="view-actions">
-          <button type="button" className="btn btn-outline" onClick={triggerLedgerDownload}>
+          <button type="button" className="btn btn-outline" onClick={triggerLedgerDownload} style={{ minHeight: '44px' }}>
             <span aria-hidden="true">📥</span> Export CSV
           </button>
         </div>
@@ -249,30 +263,38 @@ export default function TransactionsTab({ onLoadReceipt }) {
 
       <div className="ledger-table-card glass-card">
         <div className="table-wrapper">
-          <table className="ledger-table table-perf">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Receipt / Ref</th>
-                <th>Description</th>
-                <th>Category</th>
-                <th>Donor</th>
-                <th>Fund Splits</th>
-                <th>Method</th>
-                <th>Amount</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginatedTransactions.length === 0 ? (
+          {paginatedTransactions.length === 0 ? (
+            <EmptyState
+              icon={isFiltered ? '🔍' : '📑'}
+              title={isFiltered ? 'No Matching Transactions Found' : 'No Transactions Recorded Yet'}
+              description={
+                isFiltered
+                  ? 'No transactions matched your current search filters or date range.'
+                  : 'Start recording revenue, Friday collections, and expense vouchers into the ledger.'
+              }
+              actionLabel={isFiltered ? 'Clear Search Filters' : user?.role === 'ADMIN' ? '+ Record Transaction' : null}
+              onAction={isFiltered ? resetAllFilters : user?.role === 'ADMIN' ? () => openModal('transaction') : null}
+            />
+          ) : (
+            <table className="ledger-table table-perf">
+              <thead>
                 <tr>
-                  <td colSpan="10" className="empty-state">No matching transactions found.</td>
+                  <th>Date</th>
+                  <th>Receipt / Ref</th>
+                  <th>Description</th>
+                  <th>Category</th>
+                  <th>Donor</th>
+                  <th>Fund Splits</th>
+                  <th>Method</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
-              ) : (
-                paginatedTransactions.map(tx => (
+              </thead>
+              <tbody>
+                {paginatedTransactions.map(tx => (
                   <tr key={tx.id} className={tx.status === 'VOIDED' ? 'tr-voided' : tx.status === 'FAILED' ? 'tr-failed' : ''}>
-                    <td>{tx.transaction_date}</td>
+                    <td>{formatDate(tx.transaction_date)}</td>
                     <td>
                       <span className="receipt-badge">{tx.receipt_number || tx.id.substring(0, 11)}</span>
                     </td>
@@ -291,7 +313,7 @@ export default function TransactionsTab({ onLoadReceipt }) {
                       <div className="splits-summary">
                         {tx.splits?.map(s => (
                           <span key={s.id || s.fund_id} className="split-pill">
-                            {s.fundName}: {org.currency_symbol || '£'}{parseFloat(s.amount).toFixed(2)}
+                            {s.fundName}: {formatCurrency(s.amount, org.currency_symbol)}
                           </span>
                         ))}
                       </div>
@@ -300,7 +322,7 @@ export default function TransactionsTab({ onLoadReceipt }) {
                       <span className="method-pill">{tx.method || 'CASH'}</span>
                     </td>
                     <td className={tx.type === 'INCOME' ? 'val-income' : 'val-expense'}>
-                      {tx.type === 'INCOME' ? '+' : '-'}{org.currency_symbol || '£'}{parseFloat(tx.total_amount).toFixed(2)}
+                      {tx.type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.total_amount, org.currency_symbol)}
                     </td>
                     <td>
                       <span className={`status-badge ${tx.status === 'PENDING' ? 'status-cash' : tx.status === 'BANKED' ? 'status-banked' : tx.status === 'VOIDED' ? 'status-voided' : 'status-failed'}`}>
@@ -360,18 +382,20 @@ export default function TransactionsTab({ onLoadReceipt }) {
                       </div>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
 
-        <Pagination 
-          currentPage={currentPage}
-          totalItems={filteredTransactions.length}
-          itemsPerPage={itemsPerPage}
-          onPageChange={setCurrentPage}
-        />
+        {filteredTransactions.length > itemsPerPage && (
+          <Pagination 
+            currentPage={currentPage}
+            totalItems={filteredTransactions.length}
+            itemsPerPage={itemsPerPage}
+            onPageChange={setCurrentPage}
+          />
+        )}
       </div>
     </section>
   );

@@ -1,7 +1,8 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { reportClientError, addBreadcrumb } from '@/lib/errorReporting';
 
 const AppContext = createContext(null);
 
@@ -19,6 +20,8 @@ const DEFAULT_ORGANISATION = {
 
 export function AppProvider({ children }) {
   const router = useRouter();
+  const hasInitialized = useRef(false);
+  const dataVersionRef = useRef(0);
 
   const [user, setUser] = useState({ id: 'user-sec-1', role: 'ADMIN', name: 'Financial Secretary' });
   const [org, setOrg] = useState(DEFAULT_ORGANISATION);
@@ -47,7 +50,12 @@ export function AppProvider({ children }) {
 
   const addToast = useCallback((message, type = 'info') => {
     const id = Date.now() + Math.random();
-    setToasts(prev => [...prev, { id, message, type }]);
+    setToasts(prev => {
+      // Cap toasts to max 4 active to prevent viewport overflow
+      const trimmed = prev.length >= 4 ? prev.slice(prev.length - 3) : prev;
+      return [...trimmed, { id, message, type }];
+    });
+
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 4500);
@@ -60,31 +68,44 @@ export function AppProvider({ children }) {
   const applyTheme = useCallback((t) => {
     let active = t;
     if (t === 'system') {
-      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const isDark = typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
       active = isDark ? 'dark' : 'light';
     }
-    document.documentElement.setAttribute('data-theme', active);
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', active);
+    }
   }, []);
 
   const handleThemeChange = useCallback((newTheme) => {
     setTheme(newTheme);
-    localStorage.setItem('masjid-theme', newTheme);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('masjid-theme', newTheme);
+    }
     applyTheme(newTheme);
   }, [applyTheme]);
 
   // Unified fetch helper that extracts .data from standard API response envelopes
   const fetchAPI = useCallback(async (url, options = {}) => {
-    const res = await fetch(url, options);
-    const body = await res.json();
-    if (!res.ok) {
-      const errMsg = body?.error?.message || body?.error || body?.message || 'Request failed';
-      throw new Error(errMsg);
+    try {
+      const res = await fetch(url, options);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const errMsg = body?.error?.message || body?.error || body?.message || 'Request failed';
+        throw new Error(errMsg);
+      }
+      return body?.data !== undefined ? body.data : body;
+    } catch (err) {
+      reportClientError(err, { url, method: options.method || 'GET' });
+      throw err;
     }
-    return body?.data !== undefined ? body.data : body;
   }, []);
 
-  // Synchronized data refresh
+  const userRole = user?.role;
+
+  // Synchronized data refresh with race condition prevention
   const refreshData = useCallback(async () => {
+    const currentVersion = ++dataVersionRef.current;
+    
     try {
       const [balancesData, txData, donorsData, fundsData, orgData] = await Promise.all([
         fetchAPI('/api/funds/balances').catch(() => []),
@@ -94,29 +115,39 @@ export function AppProvider({ children }) {
         fetchAPI('/api/organisation').catch(() => DEFAULT_ORGANISATION)
       ]);
 
-      setBalances(Array.isArray(balancesData) ? balancesData : []);
-      setTransactions(Array.isArray(txData) ? txData : []);
-      setDonors(Array.isArray(donorsData) ? donorsData : []);
-      setFunds(Array.isArray(fundsData) ? fundsData : []);
-      if (orgData && orgData.name) setOrg(orgData);
+      // Only update state if this request is still the newest version
+      if (currentVersion === dataVersionRef.current) {
+        setBalances(Array.isArray(balancesData) ? balancesData : []);
+        setTransactions(Array.isArray(txData) ? txData : []);
+        setDonors(Array.isArray(donorsData) ? donorsData : []);
+        setFunds(Array.isArray(fundsData) ? fundsData : []);
+        if (orgData && orgData.name) setOrg(orgData);
 
-      if (user?.role === 'ADMIN') {
-        const [usersData, logsData] = await Promise.all([
-          fetchAPI('/api/users').catch(() => []),
-          fetchAPI('/api/audits').catch(() => [])
-        ]);
-        setUsersList(Array.isArray(usersData) ? usersData : []);
-        setAuditLogs(Array.isArray(logsData) ? logsData : []);
+        if (userRole === 'ADMIN') {
+          const [usersData, logsData] = await Promise.all([
+            fetchAPI('/api/users').catch(() => []),
+            fetchAPI('/api/audits').catch(() => [])
+          ]);
+          if (currentVersion === dataVersionRef.current) {
+            setUsersList(Array.isArray(usersData) ? usersData : []);
+            setAuditLogs(Array.isArray(logsData) ? logsData : []);
+          }
+        }
       }
     } catch (err) {
       console.error('Failed to load application data:', err);
     } finally {
-      setLoading(false);
+      if (currentVersion === dataVersionRef.current) {
+        setLoading(false);
+      }
     }
-  }, [fetchAPI, user?.role]);
+  }, [fetchAPI, userRole]);
 
-  // Initial Auth & Data Load
+  // Initial Auth & Data Load - Protected against multi-invocation & redirect loops
   useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+
     const init = async () => {
       try {
         const meRes = await fetch('/api/auth/me');
@@ -126,22 +157,67 @@ export function AppProvider({ children }) {
           if (authData.user) setUser(authData.user);
           if (authData.organisation) setOrg(authData.organisation);
         } else if (meRes.status === 401) {
-          router.push('/login');
+          if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+            const redirectUrl = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+            router.push(redirectUrl);
+          }
           return;
         }
       } catch (err) {
         console.error('Auth verification failed:', err);
       }
 
-      const savedTheme = localStorage.getItem('masjid-theme') || 'system';
-      setTheme(savedTheme);
-      applyTheme(savedTheme);
+      if (typeof localStorage !== 'undefined') {
+        const savedTheme = localStorage.getItem('masjid-theme') || localStorage.getItem('bsmc-theme') || 'system';
+        setTheme(savedTheme);
+        applyTheme(savedTheme);
+      }
 
       await refreshData();
     };
 
     init();
   }, [applyTheme, refreshData, router]);
+
+  // Optimistic UI mutation helper for banking cash
+  const optimisticBankDeposit = useCallback(async (txId) => {
+    const previousTransactions = transactions;
+    
+    // 1. Apply optimistic update immediately
+    setTransactions(prev => prev.map(t => t.id === txId ? { ...t, status: 'BANKED' } : t));
+    addBreadcrumb('mutation', `Optimistically banked transaction: ${txId}`);
+
+    try {
+      await fetchAPI(`/api/transactions/${txId}/bank`, { method: 'POST' });
+      addToast('Cash deposit marked as banked.', 'success');
+      refreshData();
+    } catch (err) {
+      // Rollback on server error
+      setTransactions(previousTransactions);
+      addToast(`Banking failed: ${err.message}`, 'error');
+    }
+  }, [transactions, fetchAPI, addToast, refreshData]);
+
+  // Optimistic UI mutation helper for voiding transaction
+  const optimisticVoidTx = useCallback(async (txId, voidReason) => {
+    const previousTransactions = transactions;
+
+    // Apply optimistic update immediately
+    setTransactions(prev => prev.map(t => t.id === txId ? { ...t, status: 'VOIDED', void_reason: voidReason } : t));
+
+    try {
+      await fetchAPI(`/api/transactions/${txId}/void`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: voidReason })
+      });
+      addToast('Transaction marked as voided.', 'success');
+      refreshData();
+    } catch (err) {
+      // Rollback on failure
+      setTransactions(previousTransactions);
+      addToast(`Void failed: ${err.message}`, 'error');
+    }
+  }, [transactions, fetchAPI, addToast, refreshData]);
 
   const handleLogout = async () => {
     try {
@@ -174,9 +250,13 @@ export function AppProvider({ children }) {
     addToast,
     removeToast,
     balances,
+    setBalances,
     funds,
+    setFunds,
     transactions,
+    setTransactions,
     donors,
+    setDonors,
     usersList,
     auditLogs,
     loading,
@@ -185,7 +265,9 @@ export function AppProvider({ children }) {
     modals,
     openModal,
     closeModal,
-    fetchAPI
+    fetchAPI,
+    optimisticBankDeposit,
+    optimisticVoidTx
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

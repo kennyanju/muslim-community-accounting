@@ -27,6 +27,7 @@ export default function Header({ onOpenMobileMenu }) {
           onClick={onOpenMobileMenu}
           aria-label="Open Navigation Menu"
           id="btn-mobile-menu"
+          style={{ minHeight: '44px', minWidth: '44px' }}
         >
           <span aria-hidden="true">☰</span> Menu
         </button>
@@ -52,8 +53,9 @@ export default function Header({ onOpenMobileMenu }) {
               className="btn btn-primary"
               onClick={() => openModal('transaction')}
               id="btn-new-transaction"
+              style={{ minHeight: '44px' }}
             >
-              <span aria-hidden="true">+</span> Record Transaction
+              <span aria-hidden="true">+</span> <span>Record Transaction</span>
             </button>
 
             <button 
@@ -61,8 +63,9 @@ export default function Header({ onOpenMobileMenu }) {
               className="btn btn-secondary"
               onClick={() => openModal('jummah')}
               id="btn-log-jummah"
+              style={{ minHeight: '44px' }}
             >
-              <span aria-hidden="true">🕌</span> Jummah Collection
+              <span aria-hidden="true">🕌</span> <span>Jummah Collection</span>
             </button>
 
             <button 
@@ -70,8 +73,9 @@ export default function Header({ onOpenMobileMenu }) {
               className="btn btn-outline"
               onClick={() => openModal('donor')}
               id="btn-new-donor"
+              style={{ minHeight: '44px' }}
             >
-              <span aria-hidden="true">👤</span> New Donor
+              <span aria-hidden="true">👤</span> <span>New Donor</span>
             </button>
           </>
         )}

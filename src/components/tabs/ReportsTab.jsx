@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
+import { formatCurrency } from '@/utils/formatters';
 
 export default function ReportsTab() {
   const { transactions, balances, auditLogs, org } = useApp();
@@ -68,27 +69,35 @@ export default function ReportsTab() {
   }, [filteredTx]);
 
   const triggerGiftAidDownload = () => {
-    let url = '/api/reports/giftaid';
-    const params = [];
-    if (dateFrom) params.push(`dateFrom=${dateFrom}`);
-    if (dateTo) params.push(`dateTo=${dateTo}`);
-    if (params.length > 0) url += `?${params.join('&')}`;
+    let url = '/api/reports?type=giftaid';
+    if (dateFrom) url += `&dateFrom=${dateFrom}`;
+    if (dateTo) url += `&dateTo=${dateTo}`;
+    window.open(url, '_blank');
+  };
+
+  const triggerAnnualReportDownload = () => {
+    let url = '/api/reports?type=annual';
+    if (dateFrom) url += `&dateFrom=${dateFrom}`;
+    if (dateTo) url += `&dateTo=${dateTo}`;
     window.open(url, '_blank');
   };
 
   return (
-    <section className="content-view active-view" aria-label="Financial Reports">
+    <section className="content-view active-view" aria-label="Financial Statements and Reports">
       <div className="view-header">
         <div>
-          <h2 className="view-title">Financial Statements &amp; Audit Logs</h2>
-          <p className="view-subtitle">Income &amp; Expenditure statement, Shariah compliance breakdown, and HMRC Gift Aid schedule</p>
+          <h2 className="view-title">Financial Statements &amp; Audit Reports</h2>
+          <p className="view-subtitle">UK Charity Commission annual return &amp; HMRC Gift Aid claim schedules</p>
         </div>
         <div className="view-actions">
-          <button type="button" className="btn btn-outline" onClick={triggerGiftAidDownload}>
-            <span aria-hidden="true">📋</span> HMRC Gift Aid Schedule
+          <button type="button" className="btn btn-outline" onClick={triggerGiftAidDownload} style={{ minHeight: '44px' }}>
+            <span aria-hidden="true">📑</span> Export HMRC Gift Aid CSV
           </button>
-          <button type="button" className="btn btn-primary" onClick={() => window.print()}>
-            <span aria-hidden="true">🖨️</span> Print Statement
+          <button type="button" className="btn btn-primary" onClick={triggerAnnualReportDownload} style={{ minHeight: '44px' }}>
+            <span aria-hidden="true">📥</span> Export Annual Return
+          </button>
+          <button type="button" className="btn btn-secondary" onClick={() => window.print()} style={{ minHeight: '44px' }}>
+            <span aria-hidden="true">🖨️</span> Print P&amp;L
           </button>
         </div>
       </div>
@@ -96,46 +105,49 @@ export default function ReportsTab() {
       <div className="filter-toolbar glass-card">
         <div className="filter-row">
           <div className="date-inputs">
-            <label htmlFor="report-from" className="preset-label">Reporting Period:</label>
+            <label htmlFor="report-from" className="sr-only">Date From</label>
             <input 
               id="report-from"
               type="date" 
               value={dateFrom} 
               onChange={e => setDateFrom(e.target.value)} 
-              title="From Date"
-              aria-label="Reporting Date From"
+              title="Report Start Date"
+              aria-label="Report Start Date"
             />
             <span>to</span>
+            <label htmlFor="report-to" className="sr-only">Date To</label>
             <input 
               id="report-to"
               type="date" 
               value={dateTo} 
               onChange={e => setDateTo(e.target.value)} 
-              title="To Date"
-              aria-label="Reporting Date To"
+              title="Report End Date"
+              aria-label="Report End Date"
             />
-            {(dateFrom || dateTo) && (
-              <button 
-                type="button" 
-                className="btn-preset" 
-                onClick={() => { setDateFrom(''); setDateTo(''); }}
-              >
-                Clear Dates
-              </button>
-            )}
           </div>
+          {(dateFrom || dateTo) && (
+            <button type="button" className="btn btn-outline btn-sm" onClick={() => { setDateFrom(''); setDateTo(''); }}>
+              Clear Dates
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="reports-container-grid">
-        <div className="report-block glass-card print-report-area">
-          <div className="report-block-header">
-            <h2>{org.name}</h2>
-            <h3>Statement of Financial Activities (SOFA)</h3>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              Charity Reg No. {org.charity_number} &bull; Reporting Date: {new Date().toLocaleDateString('en-GB')}
-              {(dateFrom || dateTo) && ` (${dateFrom || 'Start'} to ${dateTo || 'Present'})`}
-            </span>
+      <div className="reports-layout-grid">
+        <div className="print-report-area glass-card">
+          <div className="report-doc-header">
+            <div className="report-branding">
+              <h2>{org.name}</h2>
+              <p className="report-meta-text">Registered UK Charity No: <strong>{org.charity_number || 'N/A'}</strong></p>
+              <p className="report-meta-text">{org.address}</p>
+            </div>
+            <div className="report-title-badge">
+              <h3>STATEMENT OF FINANCIAL ACTIVITIES</h3>
+              <p>Income &amp; Expenditure Report</p>
+              <span className="report-period-tag">
+                {dateFrom || dateTo ? `Period: ${dateFrom || 'Inception'} to ${dateTo || 'Present'}` : 'Year to Date'}
+              </span>
+            </div>
           </div>
           
           <div className="pl-statement">
@@ -143,19 +155,19 @@ export default function ReportsTab() {
               <h4 className="pl-section-title">1. Incoming Resources (Income)</h4>
               <div className="pl-rows">
                 {Object.keys(pl.income).length === 0 ? (
-                  <div className="pl-row"><span>No income recorded</span><span>{org.currency_symbol || '£'}0.00</span></div>
+                  <div className="pl-row"><span>No income recorded</span><span>{formatCurrency(0, org.currency_symbol)}</span></div>
                 ) : (
                   Object.keys(pl.income).map(cat => (
                     <div key={cat} className="pl-row">
                       <span>{cat}</span>
-                      <span>{org.currency_symbol || '£'}{pl.income[cat].toFixed(2)}</span>
+                      <span>{formatCurrency(pl.income[cat], org.currency_symbol)}</span>
                     </div>
                   ))
                 )}
               </div>
               <div className="pl-row pl-total-row">
                 <span>Total Incoming Resources</span>
-                <span>{org.currency_symbol || '£'}{pl.totalInc.toFixed(2)}</span>
+                <span>{formatCurrency(pl.totalInc, org.currency_symbol)}</span>
               </div>
             </div>
 
@@ -163,19 +175,19 @@ export default function ReportsTab() {
               <h4 className="pl-section-title">2. Operational Expenses (Lillah &amp; Unrestricted)</h4>
               <div className="pl-rows">
                 {Object.keys(pl.opExpense).length === 0 ? (
-                  <div className="pl-row"><span>No operating expenses</span><span>{org.currency_symbol || '£'}0.00</span></div>
+                  <div className="pl-row"><span>No operating expenses</span><span>{formatCurrency(0, org.currency_symbol)}</span></div>
                 ) : (
                   Object.keys(pl.opExpense).map(cat => (
                     <div key={cat} className="pl-row">
                       <span>{cat}</span>
-                      <span className="expense-val">{org.currency_symbol || '£'}{pl.opExpense[cat].toFixed(2)}</span>
+                      <span className="expense-val">{formatCurrency(pl.opExpense[cat], org.currency_symbol)}</span>
                     </div>
                   ))
                 )}
               </div>
               <div className="pl-row pl-total-row">
                 <span>Total Operating Costs</span>
-                <span className="expense-val">{org.currency_symbol || '£'}{pl.totalOp.toFixed(2)}</span>
+                <span className="expense-val">{formatCurrency(pl.totalOp, org.currency_symbol)}</span>
               </div>
             </div>
 
@@ -183,19 +195,19 @@ export default function ReportsTab() {
               <h4 className="pl-section-title">3. Charitable Disbursements (Restricted Zakat &amp; Fitrana)</h4>
               <div className="pl-rows">
                 {Object.keys(pl.restrictedDisb).length === 0 ? (
-                  <div className="pl-row"><span>No restricted payouts</span><span>{org.currency_symbol || '£'}0.00</span></div>
+                  <div className="pl-row"><span>No restricted payouts</span><span>{formatCurrency(0, org.currency_symbol)}</span></div>
                 ) : (
                   Object.keys(pl.restrictedDisb).map(cat => (
                     <div key={cat} className="pl-row">
                       <span>{cat}</span>
-                      <span className="expense-val">{org.currency_symbol || '£'}{pl.restrictedDisb[cat].toFixed(2)}</span>
+                      <span className="expense-val">{formatCurrency(pl.restrictedDisb[cat], org.currency_symbol)}</span>
                     </div>
                   ))
                 )}
               </div>
               <div className="pl-row pl-total-row">
                 <span>Total Restricted Payouts</span>
-                <span className="expense-val">{org.currency_symbol || '£'}{pl.totalRest.toFixed(2)}</span>
+                <span className="expense-val">{formatCurrency(pl.totalRest, org.currency_symbol)}</span>
               </div>
             </div>
 
@@ -203,7 +215,7 @@ export default function ReportsTab() {
               <div className="pl-row pl-net-income-row">
                 <span>Net Surplus / (Deficit) for Period</span>
                 <span className={pl.net >= 0 ? 'text-success' : 'expense-val'} style={{ fontWeight: 800 }}>
-                  {org.currency_symbol || '£'}{pl.net.toFixed(2)}
+                  {formatCurrency(pl.net, org.currency_symbol)}
                 </span>
               </div>
             </div>
@@ -215,15 +227,15 @@ export default function ReportsTab() {
             <h3>Fund Segregation Compliance</h3>
             <div className="compliance-metric">
               <span>Zakat Fund:</span>
-              <strong>{org.currency_symbol || '£'}{(balances.find(b => b.fundName === 'Zakat')?.balance || 0).toFixed(2)}</strong>
+              <strong>{formatCurrency(balances.find(b => b.fundName === 'Zakat')?.balance || 0, org.currency_symbol)}</strong>
             </div>
             <div className="compliance-metric">
               <span>Fitrana Fund:</span>
-              <strong>{org.currency_symbol || '£'}{(balances.find(b => b.fundName === 'Fitrana')?.balance || 0).toFixed(2)}</strong>
+              <strong>{formatCurrency(balances.find(b => b.fundName === 'Fitrana')?.balance || 0, org.currency_symbol)}</strong>
             </div>
             <div className="compliance-metric">
               <span>Interest/Riba Segregated:</span>
-              <strong className="expense-val">{org.currency_symbol || '£'}{(balances.find(b => b.fundName === 'Interest/Riba')?.balance || 0).toFixed(2)}</strong>
+              <strong className="expense-val">{formatCurrency(balances.find(b => b.fundName === 'Interest/Riba')?.balance || 0, org.currency_symbol)}</strong>
             </div>
             <hr style={{ borderColor: 'var(--border-color)', margin: '12px 0' }} />
             <p className="micro-text" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>

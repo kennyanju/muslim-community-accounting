@@ -2,26 +2,38 @@
 
 import React, { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
+import { validateClientTransaction } from '@/lib/clientValidation';
+import { formatCurrency } from '@/utils/formatters';
 
 const INCOME_CATEGORIES = ["Donation", "Zakat", "Fitrana", "Madrasah Fees", "Event Tickets", "Interest", "Other"];
 const EXPENSE_CATEGORIES = ["Utilities", "Salaries", "Maintenance", "Charitable Payout", "Office Supplies", "Travel", "Other"];
+
+const INITIAL_FORM = {
+  type: 'income',
+  totalAmount: '',
+  date: new Date().toISOString().substring(0, 10),
+  donorId: 'anonymous',
+  method: 'CASH',
+  category: 'Donation',
+  reference_note: '',
+  notes: '',
+  giftAid: false,
+  splits: [{ fund_id: 'fund-lillah', amount: '' }]
+};
 
 export default function TransactionModal() {
   const { modals, closeModal, balances, donors, org, fetchAPI, addToast, refreshData } = useApp();
 
   const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState({
-    type: 'income',
-    totalAmount: '',
-    date: new Date().toISOString().substring(0, 10),
-    donorId: 'anonymous',
-    method: 'CASH',
-    category: 'Donation',
-    reference_note: '',
-    notes: '',
-    giftAid: false,
-    splits: [{ fund_id: balances.find(b => !b.isArchived)?.fundId || 'fund-lillah', amount: '' }]
-  });
+  const [errors, setErrors] = useState({});
+  const [form, setForm] = useState(INITIAL_FORM);
+
+  const splitSum = useMemo(() => {
+    return form.splits.reduce((acc, s) => acc + (parseFloat(s.amount) || 0), 0);
+  }, [form.splits]);
+
+  const totalNum = parseFloat(form.totalAmount) || 0;
+  const isSplitTotalMismatch = totalNum > 0 && Math.round(splitSum * 100) !== Math.round(totalNum * 100);
 
   const isRestrictedExpenseViolation = useMemo(() => {
     if (form.type !== 'expense') return false;
@@ -35,12 +47,11 @@ export default function TransactionModal() {
     });
   }, [form.type, form.splits, form.category, form.notes, balances]);
 
-  const splitSum = useMemo(() => {
-    return form.splits.reduce((acc, s) => acc + (parseFloat(s.amount) || 0), 0);
-  }, [form.splits]);
-
-  const totalNum = parseFloat(form.totalAmount) || 0;
-  const isSplitTotalMismatch = Math.round(splitSum * 100) !== Math.round(totalNum * 100);
+  const handleClose = () => {
+    setErrors({});
+    setForm(INITIAL_FORM);
+    closeModal('transaction');
+  };
 
   const handleTypeChange = (type) => {
     setForm(prev => ({
@@ -49,6 +60,7 @@ export default function TransactionModal() {
       category: type === 'income' ? 'Donation' : 'Utilities',
       giftAid: type === 'income' ? prev.giftAid : false
     }));
+    setErrors({});
   };
 
   const handleAddSplit = () => {
@@ -73,6 +85,7 @@ export default function TransactionModal() {
       updated[index] = { ...updated[index], [field]: value };
       return { ...prev, splits: updated };
     });
+    if (errors.splits) setErrors(prev => ({ ...prev, splits: null }));
   };
 
   const handleDonorSelect = (donorId) => {
@@ -90,17 +103,19 @@ export default function TransactionModal() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (isRestrictedExpenseViolation) {
-      addToast("Compliance Violation: Zakat and Fitrana funds can only be disbursed under 'Charitable Payout' with Asnaf notes.", "error");
+
+    // Client-side schema validation
+    const { isValid, errors: validationErrors } = validateClientTransaction(form, balances);
+    if (!isValid) {
+      setErrors(validationErrors);
+      const firstErr = Object.values(validationErrors)[0];
+      addToast(firstErr, 'error');
       return;
     }
 
-    if (isSplitTotalMismatch) {
-      addToast(`Fund allocations (£${splitSum.toFixed(2)}) must exactly equal total amount (£${totalNum.toFixed(2)}).`, "error");
-      return;
-    }
-
+    setErrors({});
     setSubmitting(true);
+
     try {
       await fetchAPI('/api/transactions', {
         method: 'POST',
@@ -113,7 +128,7 @@ export default function TransactionModal() {
       });
 
       addToast("Transaction recorded successfully.", "success");
-      closeModal('transaction');
+      handleClose();
       refreshData();
     } catch (err) {
       addToast(err.message, "error");
@@ -129,15 +144,24 @@ export default function TransactionModal() {
       <div className="modal-card glass-card">
         <div className="modal-header">
           <h3 id="tx-modal-title">Record Financial Transaction</h3>
-          <button type="button" className="btn-icon" onClick={() => closeModal('transaction')} aria-label="Close modal">✕</button>
+          <button 
+            type="button" 
+            className="btn-icon" 
+            onClick={handleClose} 
+            aria-label="Close modal"
+            style={{ minWidth: '44px', minHeight: '44px' }}
+          >
+            ✕
+          </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} noValidate>
           <div className="form-type-selector">
             <button 
               type="button" 
               className={`type-toggle-btn ${form.type === 'income' ? 'active-income' : ''}`}
               onClick={() => handleTypeChange('income')}
+              style={{ minHeight: '44px' }}
             >
               📥 Income (Donation / Fees)
             </button>
@@ -145,6 +169,7 @@ export default function TransactionModal() {
               type="button" 
               className={`type-toggle-btn ${form.type === 'expense' ? 'active-expense' : ''}`}
               onClick={() => handleTypeChange('expense')}
+              style={{ minHeight: '44px' }}
             >
               📤 Expense (Payout / Bills)
             </button>
@@ -155,24 +180,34 @@ export default function TransactionModal() {
               <label htmlFor="tx-amount">Total Amount ({org.currency_symbol || '£'}) *</label>
               <input 
                 id="tx-amount"
+                name="totalAmount"
                 type="number" 
                 min="0.01" 
                 step="0.01" 
                 placeholder="0.00" 
                 value={form.totalAmount} 
-                onChange={e => setForm({ ...form, totalAmount: e.target.value })} 
+                onChange={e => {
+                  setForm({ ...form, totalAmount: e.target.value });
+                  if (errors.totalAmount) setErrors(prev => ({ ...prev, totalAmount: null }));
+                }} 
                 required 
               />
+              {errors.totalAmount && <span className="field-error">{errors.totalAmount}</span>}
             </div>
             <div className="form-group">
               <label htmlFor="tx-date">Transaction Date *</label>
               <input 
                 id="tx-date"
+                name="transactionDate"
                 type="date" 
                 value={form.date} 
-                onChange={e => setForm({ ...form, date: e.target.value })} 
+                onChange={e => {
+                  setForm({ ...form, date: e.target.value });
+                  if (errors.date) setErrors(prev => ({ ...prev, date: null }));
+                }} 
                 required 
               />
+              {errors.date && <span className="field-error">{errors.date}</span>}
             </div>
           </div>
 
@@ -181,6 +216,7 @@ export default function TransactionModal() {
               <label htmlFor="tx-category">Category *</label>
               <select 
                 id="tx-category"
+                name="category"
                 value={form.category} 
                 onChange={e => setForm({ ...form, category: e.target.value })}
               >
@@ -193,6 +229,7 @@ export default function TransactionModal() {
               <label htmlFor="tx-method">Payment Method</label>
               <select 
                 id="tx-method"
+                name="paymentMethod"
                 value={form.method} 
                 onChange={e => setForm({ ...form, method: e.target.value })}
               >
@@ -211,6 +248,7 @@ export default function TransactionModal() {
                 <label htmlFor="tx-donor">Donor Profile</label>
                 <select 
                   id="tx-donor"
+                  name="donorId"
                   value={form.donorId} 
                   onChange={e => handleDonorSelect(e.target.value)}
                 >
@@ -224,12 +262,14 @@ export default function TransactionModal() {
                 <label className="checkbox-label">
                   <input 
                     type="checkbox" 
+                    name="giftAid"
                     checked={form.giftAid} 
                     onChange={e => setForm({ ...form, giftAid: e.target.checked })}
                     disabled={form.donorId === 'anonymous'}
                   />
                   <span>Claim UK HMRC Gift Aid (+25%)</span>
                 </label>
+                {errors.giftAid && <span className="field-error">{errors.giftAid}</span>}
               </div>
             </div>
           )}
@@ -238,6 +278,7 @@ export default function TransactionModal() {
             <label htmlFor="tx-ref">Reference / Description</label>
             <input 
               id="tx-ref"
+              name="referenceNote"
               type="text" 
               placeholder="e.g. Ramadan Iftar Sponsorship, Gas Utility Bill" 
               value={form.reference_note} 
@@ -248,7 +289,7 @@ export default function TransactionModal() {
           <div className="form-divider">
             Fund Segregation &amp; Split Allocation
             <span className={`split-counter-badge ${isSplitTotalMismatch ? 'badge-mismatch' : 'badge-match'}`}>
-              Allocated: {org.currency_symbol || '£'}{splitSum.toFixed(2)} / {org.currency_symbol || '£'}{totalNum.toFixed(2)}
+              Allocated: {formatCurrency(splitSum, org.currency_symbol)} / {formatCurrency(totalNum, org.currency_symbol)}
             </span>
           </div>
 
@@ -259,6 +300,7 @@ export default function TransactionModal() {
                   <label htmlFor={`split-fund-${idx}`} className="sr-only">Fund</label>
                   <select 
                     id={`split-fund-${idx}`}
+                    name={`splitFund_${idx}`}
                     value={split.fund_id} 
                     onChange={e => handleSplitChange(idx, 'fund_id', e.target.value)}
                   >
@@ -273,6 +315,7 @@ export default function TransactionModal() {
                   <label htmlFor={`split-amt-${idx}`} className="sr-only">Amount</label>
                   <input 
                     id={`split-amt-${idx}`}
+                    name={`splitAmount_${idx}`}
                     type="number" 
                     step="0.01" 
                     placeholder="0.00" 
@@ -287,18 +330,23 @@ export default function TransactionModal() {
                     className="btn-icon btn-danger-icon" 
                     onClick={() => handleRemoveSplit(idx)}
                     title="Remove split"
+                    aria-label={`Remove split ${idx + 1}`}
+                    style={{ minWidth: '44px', minHeight: '44px' }}
                   >
                     ✕
                   </button>
                 )}
               </div>
             ))}
-            <button type="button" className="btn-link" onClick={handleAddSplit}>+ Add Another Fund Split</button>
+            {errors.splits && <span className="field-error" style={{ marginBottom: '8px' }}>{errors.splits}</span>}
+            <button type="button" className="btn-link" onClick={handleAddSplit} style={{ minHeight: '44px', display: 'inline-flex', alignItems: 'center' }}>
+              + Add Another Fund Split
+            </button>
           </div>
 
           {isRestrictedExpenseViolation && (
-            <div className="compliance-warning-box">
-              ⚠️ <strong>Strict Shariah Restriction:</strong> Zakat and Fitrana restricted funds can ONLY be disbursed under category <em>'Charitable Payout'</em> to eligible Asnaf beneficiaries with detailed audit notes.
+            <div className="compliance-warning-box" role="alert">
+              ⚠️ <strong>Strict Shariah Restriction:</strong> Zakat and Fitrana restricted funds can ONLY be disbursed under category <em>&apos;Charitable Payout&apos;</em> to eligible Asnaf beneficiaries with detailed audit notes.
             </div>
           )}
 
@@ -308,21 +356,27 @@ export default function TransactionModal() {
             </label>
             <textarea 
               id="tx-notes"
+              name="auditNotes"
               rows="2" 
               placeholder="Enter auditor notes, invoice reference, or beneficiary justification..." 
               value={form.notes} 
-              onChange={e => setForm({ ...form, notes: e.target.value })} 
+              onChange={e => {
+                setForm({ ...form, notes: e.target.value });
+                if (errors.notes) setErrors(prev => ({ ...prev, notes: null }));
+              }} 
             />
+            {errors.notes && <span className="field-error">{errors.notes}</span>}
           </div>
 
           <div className="modal-actions">
-            <button type="button" className="btn btn-outline" onClick={() => closeModal('transaction')}>
+            <button type="button" className="btn btn-outline" onClick={handleClose} style={{ minHeight: '44px' }}>
               Cancel
             </button>
             <button 
               type="submit" 
               className="btn btn-primary" 
-              disabled={submitting || isRestrictedExpenseViolation || (totalNum > 0 && isSplitTotalMismatch)}
+              disabled={submitting || isRestrictedExpenseViolation || isSplitTotalMismatch}
+              style={{ minHeight: '44px' }}
             >
               {submitting ? 'Recording...' : '💾 Save Transaction'}
             </button>

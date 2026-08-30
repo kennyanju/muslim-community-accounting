@@ -2,9 +2,11 @@
 
 import React, { useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
+import { formatCurrency, formatDate } from '@/utils/formatters';
+import EmptyState from '@/components/common/EmptyState';
 
 export default function DashboardTab() {
-  const { balances, transactions, org, setActiveTab } = useApp();
+  const { balances, transactions, org, setActiveTab, openModal, user } = useApp();
 
   const consolidated = useMemo(() => {
     let total = 0;
@@ -50,7 +52,7 @@ export default function DashboardTab() {
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      const monthLabel = d.toLocaleString('default', { month: 'short' });
+      const monthLabel = d.toLocaleString('en-GB', { month: 'short' });
       months.push({ key, label: monthLabel, inflow: 0, outflow: 0 });
     }
 
@@ -115,7 +117,7 @@ export default function DashboardTab() {
             rx={3}
             fill="#10b981"
           >
-            <title>{`${item.label} Inflow: ${org.currency_symbol || '£'}${item.inflow.toFixed(2)}`}</title>
+            <title>{`${item.label} Inflow: ${formatCurrency(item.inflow, org.currency_symbol)}`}</title>
           </rect>
 
           <rect
@@ -126,7 +128,7 @@ export default function DashboardTab() {
             rx={3}
             fill="#ef4444"
           >
-            <title>{`${item.label} Outflow: ${org.currency_symbol || '£'}${item.outflow.toFixed(2)}`}</title>
+            <title>{`${item.label} Outflow: ${formatCurrency(item.outflow, org.currency_symbol)}`}</title>
           </rect>
         </g>
       );
@@ -145,7 +147,7 @@ export default function DashboardTab() {
     const total = activeBalances.reduce((sum, b) => sum + b.balance, 0);
 
     if (total === 0) {
-      return <text x="120" y="120" textAnchor="middle" fill="var(--text-secondary)">No active funds</text>;
+      return <text x="120" y="120" textAnchor="middle" fill="var(--text-secondary)" fontSize="13">No active funds</text>;
     }
 
     const colors = ["#10b981", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4", "#14b8a6"];
@@ -175,7 +177,7 @@ export default function DashboardTab() {
           strokeWidth="16"
           className="donut-slice"
         >
-          <title>{`${b.fundName}: ${org.currency_symbol || '£'}${b.balance.toFixed(2)} (${Math.round(percentage * 100)}%)`}</title>
+          <title>{`${b.fundName}: ${formatCurrency(b.balance, org.currency_symbol)} (${Math.round(percentage * 100)}%)`}</title>
         </path>
       );
     });
@@ -189,7 +191,7 @@ export default function DashboardTab() {
           <p className="view-subtitle">Islamic Restricted and Unrestricted fund balances &amp; live financial summary</p>
         </div>
         <div className="date-badge">
-          {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
+          {new Date().toLocaleString('en-GB', { month: 'long', year: 'numeric' })}
         </div>
       </div>
 
@@ -197,43 +199,55 @@ export default function DashboardTab() {
         <div className="balance-summary-card main-summary">
           <span className="card-tag">Consolidated</span>
           <h3>Total Net Funds</h3>
-          <span className="balance-amount">{org.currency_symbol || '£'}{consolidated.total.toFixed(2)}</span>
+          <span className="balance-amount">{formatCurrency(consolidated.total, org.currency_symbol)}</span>
           <div className="balance-meta-split">
-            <span>Bank: <strong>{org.currency_symbol || '£'}{consolidated.bankTotal.toFixed(2)}</strong></span>
-            <span>Cash on Hand: <strong>{org.currency_symbol || '£'}{consolidated.cashTotal.toFixed(2)}</strong></span>
+            <span>Bank: <strong>{formatCurrency(consolidated.bankTotal, org.currency_symbol)}</strong></span>
+            <span>Cash on Hand: <strong>{formatCurrency(consolidated.cashTotal, org.currency_symbol)}</strong></span>
           </div>
         </div>
 
         <div className="balance-summary-card restricted-sum">
           <span className="card-tag restricted">Restricted</span>
           <h3>Zakat &amp; Fitrana</h3>
-          <span className="balance-amount">{org.currency_symbol || '£'}{consolidated.restricted.toFixed(2)}</span>
+          <span className="balance-amount">{formatCurrency(consolidated.restricted, org.currency_symbol)}</span>
           <p className="fund-subinfo">Reserved strictly for eligible Asnaf recipients.</p>
         </div>
 
         <div className="balance-summary-card unrestricted-sum">
           <span className="card-tag unrestricted">Unrestricted</span>
           <h3>Lillah &amp; Operations</h3>
-          <span className="balance-amount">{org.currency_symbol || '£'}{consolidated.unrestricted.toFixed(2)}</span>
+          <span className="balance-amount">{formatCurrency(consolidated.unrestricted, org.currency_symbol)}</span>
           <p className="fund-subinfo">Available for utilities, bills, imam salaries, and maintenance.</p>
         </div>
       </div>
 
       <h3 className="section-title">Islamic Fund Wallets</h3>
-      <div className="funds-grid">
-        {balances.filter(b => !b.isArchived).map(b => (
-          <div key={b.fundId} className="fund-wallet-card">
-            <div className="wallet-header">
-              <span className="wallet-name">{b.fundName}</span>
-              <span className={`wallet-type ${b.isRestricted ? 'type-restricted' : 'type-unrestricted'}`}>
-                {b.isRestricted ? 'Restricted' : 'Unrestricted'}
-              </span>
+      {balances.filter(b => !b.isArchived).length === 0 ? (
+        <div className="glass-card" style={{ marginBottom: '24px' }}>
+          <EmptyState
+            icon="💼"
+            title="No Fund Wallets Found"
+            description="Create segregated Islamic funds (Zakat, Lillah, Fitrana, Building) in Settings to start tracking balances."
+            actionLabel={user?.role === 'ADMIN' ? 'Go to Settings' : null}
+            onAction={user?.role === 'ADMIN' ? () => setActiveTab('settings') : null}
+          />
+        </div>
+      ) : (
+        <div className="funds-grid">
+          {balances.filter(b => !b.isArchived).map(b => (
+            <div key={b.fundId} className="fund-wallet-card">
+              <div className="wallet-header">
+                <span className="wallet-name">{b.fundName}</span>
+                <span className={`wallet-type ${b.isRestricted ? 'type-restricted' : 'type-unrestricted'}`}>
+                  {b.isRestricted ? 'Restricted' : 'Unrestricted'}
+                </span>
+              </div>
+              <span className="wallet-val">{formatCurrency(b.balance, org.currency_symbol)}</span>
+              {b.fundName === 'Interest/Riba' && <span className="riba-tooltip">Segregated interest for disposal.</span>}
             </div>
-            <span className="wallet-val">{org.currency_symbol || '£'}{b.balance.toFixed(2)}</span>
-            {b.fundName === 'Interest/Riba' && <span className="riba-tooltip">Segregated interest for disposal.</span>}
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       <div className="dashboard-charts-grid">
         <div className="chart-card glass-card">
@@ -245,7 +259,14 @@ export default function DashboardTab() {
             </span>
           </div>
           <div className="chart-body">
-            <svg viewBox="0 0 500 240" className="interactive-chart">
+            <svg 
+              viewBox="0 0 500 240" 
+              className="interactive-chart"
+              role="img" 
+              aria-label="6-month financial inflows vs outflows comparison chart"
+            >
+              <title>Trailing 6-Month Inflow and Outflow Chart</title>
+              <desc>Comparison of monthly income donations versus expenses recorded across all funds</desc>
               {renderTrendChart()}
             </svg>
           </div>
@@ -256,7 +277,13 @@ export default function DashboardTab() {
             <h3>Fund Allocation</h3>
           </div>
           <div className="chart-body donut-chart-body">
-            <svg viewBox="0 0 240 240" className="interactive-chart">
+            <svg 
+              viewBox="0 0 240 240" 
+              className="interactive-chart"
+              role="img"
+              aria-label="Fund allocation donut chart"
+            >
+              <title>Fund Segregation Breakdown</title>
               {renderDonutChart()}
             </svg>
           </div>
@@ -267,7 +294,7 @@ export default function DashboardTab() {
                   <span className="legend-color-box" style={{ backgroundColor: ["#10b981", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4", "#14b8a6"][idx % 7] }}></span>
                   <span>{b.fundName}</span>
                 </div>
-                <strong>{org.currency_symbol || '£'}{b.balance.toFixed(2)}</strong>
+                <strong>{formatCurrency(b.balance, org.currency_symbol)}</strong>
               </div>
             ))}
           </div>
@@ -282,41 +309,51 @@ export default function DashboardTab() {
           </button>
         </div>
         <div className="table-wrapper">
-          <table className="ledger-table table-perf">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Description</th>
-                <th>Fund</th>
-                <th>Category</th>
-                <th>Amount</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {transactions.slice(0, 6).map(tx => (
-                <tr key={tx.id} className={tx.status === 'VOIDED' ? 'tr-voided' : tx.status === 'FAILED' ? 'tr-failed' : ''}>
-                  <td>{tx.transaction_date}</td>
-                  <td>
-                    <strong>{tx.reference_note || tx.description}</strong>
-                    {tx.status === 'VOIDED' && tx.void_reason && (
-                      <div style={{ fontSize: '0.72rem', color: 'var(--danger)' }}>Void Reason: {tx.void_reason}</div>
-                    )}
-                  </td>
-                  <td>{tx.splits?.map(s => `${s.fundName}: ${org.currency_symbol || '£'}${s.amount}`).join(', ')}</td>
-                  <td>{tx.category || 'Donation'}</td>
-                  <td className={tx.type === 'INCOME' ? 'val-income' : 'val-expense'}>
-                    {tx.type === 'INCOME' ? '+' : '-'}{org.currency_symbol || '£'}{parseFloat(tx.total_amount).toFixed(2)}
-                  </td>
-                  <td>
-                    <span className={`status-badge ${tx.status === 'PENDING' ? 'status-cash' : tx.status === 'BANKED' ? 'status-banked' : tx.status === 'VOIDED' ? 'status-voided' : 'status-failed'}`}>
-                      {tx.status === 'PENDING' ? 'Cash on Hand' : tx.status}
-                    </span>
-                  </td>
+          {transactions.length === 0 ? (
+            <EmptyState
+              icon="📑"
+              title="No Ledger Entries Yet"
+              description="Record your first income or expense transaction to see live ledger activity."
+              actionLabel={user?.role === 'ADMIN' ? '+ Record Transaction' : null}
+              onAction={user?.role === 'ADMIN' ? () => openModal('transaction') : null}
+            />
+          ) : (
+            <table className="ledger-table table-perf">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Description</th>
+                  <th>Fund</th>
+                  <th>Category</th>
+                  <th>Amount</th>
+                  <th>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {transactions.slice(0, 6).map(tx => (
+                  <tr key={tx.id} className={tx.status === 'VOIDED' ? 'tr-voided' : tx.status === 'FAILED' ? 'tr-failed' : ''}>
+                    <td>{formatDate(tx.transaction_date)}</td>
+                    <td>
+                      <strong>{tx.reference_note || tx.description}</strong>
+                      {tx.status === 'VOIDED' && tx.void_reason && (
+                        <div style={{ fontSize: '0.72rem', color: 'var(--danger)' }}>Void Reason: {tx.void_reason}</div>
+                      )}
+                    </td>
+                    <td>{tx.splits?.map(s => `${s.fundName}: ${formatCurrency(s.amount, org.currency_symbol)}`).join(', ')}</td>
+                    <td>{tx.category || 'Donation'}</td>
+                    <td className={tx.type === 'INCOME' ? 'val-income' : 'val-expense'}>
+                      {tx.type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.total_amount, org.currency_symbol)}
+                    </td>
+                    <td>
+                      <span className={`status-badge ${tx.status === 'PENDING' ? 'status-cash' : tx.status === 'BANKED' ? 'status-banked' : tx.status === 'VOIDED' ? 'status-voided' : 'status-failed'}`}>
+                        {tx.status === 'PENDING' ? 'Cash on Hand' : tx.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </section>

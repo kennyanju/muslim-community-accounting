@@ -19,10 +19,19 @@ export const viewport = {
 };
 
 export const metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://masjid-accounting.local'),
   title: 'Masjid Accounting — Islamic Financial Management System',
   description: 'Islamic compliance, multi-fund segregation, and audit-safe accounting ledger with UK Charity Commission and HMRC Gift Aid integration.',
   keywords: ['Masjid Accounting', 'Islamic Finance', 'Zakat', 'Fitrana', 'Lillah', 'Gift Aid', 'Mosque Ledger', 'Charity Commission'],
   authors: [{ name: 'Masjid Finance' }],
+  alternates: {
+    canonical: '/',
+  },
+  manifest: '/manifest.json',
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/favicon.ico',
+  },
   openGraph: {
     title: 'Masjid Accounting — Islamic Financial Management System',
     description: 'Compliant multi-fund accounting ledger for Mosques and Islamic Charities.',
@@ -41,6 +50,7 @@ export default function RootLayout({ children }) {
     <html lang="en" className={`${inter.variable} ${outfit.variable}`} data-theme="system">
       <head>
         <meta name="color-scheme" content="light dark" />
+        <link rel="manifest" href="/manifest.json" />
         <script
           dangerouslySetInnerHTML={{
             __html: `
