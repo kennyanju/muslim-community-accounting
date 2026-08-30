@@ -3,13 +3,16 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import { useDebounce } from '@/hooks/usePerformanceHooks';
+import EmptyState from '@/components/common/EmptyState';
 import { formatCurrency } from '@/utils/formatters';
 
 export default function ReportsTab() {
-  const { transactions, balances, auditLogs, org } = useApp();
+  const { transactions, balances, auditLogs, org, openModal } = useApp();
 
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [isExportingGiftAid, setIsExportingGiftAid] = useState(false);
+  const [isExportingAnnual, setIsExportingAnnual] = useState(false);
 
   // Debounce date inputs
   const debouncedDateFrom = useDebounce(dateFrom, 250);
@@ -74,17 +77,21 @@ export default function ReportsTab() {
   }, [filteredTx]);
 
   const triggerGiftAidDownload = () => {
+    setIsExportingGiftAid(true);
     let url = '/api/reports?type=giftaid';
     if (dateFrom) url += `&dateFrom=${dateFrom}`;
     if (dateTo) url += `&dateTo=${dateTo}`;
     window.open(url, '_blank');
+    setTimeout(() => setIsExportingGiftAid(false), 1200);
   };
 
   const triggerAnnualReportDownload = () => {
+    setIsExportingAnnual(true);
     let url = '/api/reports?type=annual';
     if (dateFrom) url += `&dateFrom=${dateFrom}`;
     if (dateTo) url += `&dateTo=${dateTo}`;
     window.open(url, '_blank');
+    setTimeout(() => setIsExportingAnnual(false), 1200);
   };
 
   return (
@@ -95,11 +102,23 @@ export default function ReportsTab() {
           <p className="view-subtitle">UK Charity Commission annual return &amp; HMRC Gift Aid claim schedules</p>
         </div>
         <div className="view-actions">
-          <button type="button" className="btn btn-outline" onClick={triggerGiftAidDownload} style={{ minHeight: '44px' }}>
-            <span aria-hidden="true">📑</span> Export HMRC Gift Aid CSV
+          <button 
+            type="button" 
+            className="btn btn-outline" 
+            onClick={triggerGiftAidDownload} 
+            disabled={isExportingGiftAid}
+            style={{ minHeight: '44px' }}
+          >
+            <span aria-hidden="true">{isExportingGiftAid ? '⏳' : '📑'}</span> {isExportingGiftAid ? 'Exporting...' : 'Export HMRC Gift Aid CSV'}
           </button>
-          <button type="button" className="btn btn-primary" onClick={triggerAnnualReportDownload} style={{ minHeight: '44px' }}>
-            <span aria-hidden="true">📥</span> Export Annual Return
+          <button 
+            type="button" 
+            className="btn btn-primary" 
+            onClick={triggerAnnualReportDownload} 
+            disabled={isExportingAnnual}
+            style={{ minHeight: '44px' }}
+          >
+            <span aria-hidden="true">{isExportingAnnual ? '⏳' : '📥'}</span> {isExportingAnnual ? 'Generating...' : 'Export Annual Return'}
           </button>
           <button type="button" className="btn btn-secondary" onClick={() => window.print()} style={{ minHeight: '44px' }}>
             <span aria-hidden="true">🖨️</span> Print P&amp;L
@@ -155,76 +174,88 @@ export default function ReportsTab() {
             </div>
           </div>
           
-          <div className="pl-statement">
-            <div className="pl-section">
-              <h4 className="pl-section-title">1. Incoming Resources (Income)</h4>
-              <div className="pl-rows">
-                {Object.keys(pl.income).length === 0 ? (
-                  <div className="pl-row"><span>No income recorded</span><span>{formatCurrency(0, org.currency_symbol)}</span></div>
-                ) : (
-                  Object.keys(pl.income).map(cat => (
-                    <div key={cat} className="pl-row">
-                      <span>{cat}</span>
-                      <span>{formatCurrency(pl.income[cat], org.currency_symbol)}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-              <div className="pl-row pl-total-row">
-                <span>Total Incoming Resources</span>
-                <span>{formatCurrency(pl.totalInc, org.currency_symbol)}</span>
-              </div>
+          {filteredTx.length === 0 ? (
+            <div style={{ padding: '32px 16px' }}>
+              <EmptyState
+                icon="📊"
+                title={dateFrom || dateTo ? "No Transactions in Selected Period" : "No Financial Activity Recorded"}
+                description={dateFrom || dateTo ? "No income or expenditure entries matched the specified date range filter." : "Record donations, Jummah collections, or operating expenses to generate financial statements."}
+                actionLabel={dateFrom || dateTo ? "Clear Date Filter" : "Record Transaction"}
+                onAction={dateFrom || dateTo ? () => { setDateFrom(''); setDateTo(''); } : () => openModal('transaction', { mode: 'create' })}
+              />
             </div>
+          ) : (
+            <div className="pl-statement">
+              <div className="pl-section">
+                <h4 className="pl-section-title">1. Incoming Resources (Income)</h4>
+                <div className="pl-rows">
+                  {Object.keys(pl.income).length === 0 ? (
+                    <div className="pl-row"><span>No income recorded</span><span>{formatCurrency(0, org.currency_symbol)}</span></div>
+                  ) : (
+                    Object.keys(pl.income).map(cat => (
+                      <div key={cat} className="pl-row">
+                        <span>{cat}</span>
+                        <span>{formatCurrency(pl.income[cat], org.currency_symbol)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="pl-row pl-total-row">
+                  <span>Total Incoming Resources</span>
+                  <span>{formatCurrency(pl.totalInc, org.currency_symbol)}</span>
+                </div>
+              </div>
 
-            <div className="pl-section">
-              <h4 className="pl-section-title">2. Operational Expenses (Lillah &amp; Unrestricted)</h4>
-              <div className="pl-rows">
-                {Object.keys(pl.opExpense).length === 0 ? (
-                  <div className="pl-row"><span>No operating expenses</span><span>{formatCurrency(0, org.currency_symbol)}</span></div>
-                ) : (
-                  Object.keys(pl.opExpense).map(cat => (
-                    <div key={cat} className="pl-row">
-                      <span>{cat}</span>
-                      <span className="expense-val">{formatCurrency(pl.opExpense[cat], org.currency_symbol)}</span>
-                    </div>
-                  ))
-                )}
+              <div className="pl-section">
+                <h4 className="pl-section-title">2. Operational Expenses (Lillah &amp; Unrestricted)</h4>
+                <div className="pl-rows">
+                  {Object.keys(pl.opExpense).length === 0 ? (
+                    <div className="pl-row"><span>No operating expenses</span><span>{formatCurrency(0, org.currency_symbol)}</span></div>
+                  ) : (
+                    Object.keys(pl.opExpense).map(cat => (
+                      <div key={cat} className="pl-row">
+                        <span>{cat}</span>
+                        <span className="expense-val">{formatCurrency(pl.opExpense[cat], org.currency_symbol)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="pl-row pl-total-row">
+                  <span>Total Operating Costs</span>
+                  <span className="expense-val">{formatCurrency(pl.totalOp, org.currency_symbol)}</span>
+                </div>
               </div>
-              <div className="pl-row pl-total-row">
-                <span>Total Operating Costs</span>
-                <span className="expense-val">{formatCurrency(pl.totalOp, org.currency_symbol)}</span>
-              </div>
-            </div>
 
-            <div className="pl-section">
-              <h4 className="pl-section-title">3. Charitable Disbursements (Restricted Zakat &amp; Fitrana)</h4>
-              <div className="pl-rows">
-                {Object.keys(pl.restrictedDisb).length === 0 ? (
-                  <div className="pl-row"><span>No restricted payouts</span><span>{formatCurrency(0, org.currency_symbol)}</span></div>
-                ) : (
-                  Object.keys(pl.restrictedDisb).map(cat => (
-                    <div key={cat} className="pl-row">
-                      <span>{cat}</span>
-                      <span className="expense-val">{formatCurrency(pl.restrictedDisb[cat], org.currency_symbol)}</span>
-                    </div>
-                  ))
-                )}
+              <div className="pl-section">
+                <h4 className="pl-section-title">3. Charitable Disbursements (Restricted Zakat &amp; Fitrana)</h4>
+                <div className="pl-rows">
+                  {Object.keys(pl.restrictedDisb).length === 0 ? (
+                    <div className="pl-row"><span>No restricted payouts</span><span>{formatCurrency(0, org.currency_symbol)}</span></div>
+                  ) : (
+                    Object.keys(pl.restrictedDisb).map(cat => (
+                      <div key={cat} className="pl-row">
+                        <span>{cat}</span>
+                        <span className="expense-val">{formatCurrency(pl.restrictedDisb[cat], org.currency_symbol)}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="pl-row pl-total-row">
+                  <span>Total Restricted Payouts</span>
+                  <span className="expense-val">{formatCurrency(pl.totalRest, org.currency_symbol)}</span>
+                </div>
               </div>
-              <div className="pl-row pl-total-row">
-                <span>Total Restricted Payouts</span>
-                <span className="expense-val">{formatCurrency(pl.totalRest, org.currency_symbol)}</span>
-              </div>
-            </div>
 
-            <div className="pl-section pl-net-income-section">
-              <div className="pl-row pl-net-income-row">
-                <span>Net Surplus / (Deficit) for Period</span>
-                <span className={pl.net >= 0 ? 'text-success' : 'expense-val'} style={{ fontWeight: 800 }}>
-                  {formatCurrency(pl.net, org.currency_symbol)}
-                </span>
+              <div className="pl-section pl-net-income-section">
+                <div className="pl-row pl-net-income-row">
+                  <span>Net Surplus / (Deficit) for Period</span>
+                  <span className={pl.net >= 0 ? 'text-success' : 'expense-val'} style={{ fontWeight: 800 }}>
+                    {formatCurrency(pl.net, org.currency_symbol)}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="report-side-column">
@@ -251,16 +282,24 @@ export default function ReportsTab() {
           <div className="analytics-stat-card glass-card">
             <h3>System Audit Trails</h3>
             <div className="audit-timeline" style={{ maxHeight: '360px', overflowY: 'auto' }}>
-              {(auditLogs || []).slice(0, 20).map(log => (
-                <div key={log.id} className="timeline-item" style={{ padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}>
-                  <span className="timeline-time" style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'block' }}>
-                    {new Date(log.timestamp).toLocaleString('en-GB')} by <strong>{log.userEmail || log.userName || log.user_id}</strong>
-                  </span>
-                  <span className="timeline-desc" style={{ fontSize: '0.8rem' }}>
-                    {`Action ${log.action} on ${log.table_name} [${log.record_id}]`}
-                  </span>
-                </div>
-              ))}
+              {(auditLogs || []).length === 0 ? (
+                <EmptyState
+                  icon="📋"
+                  title="No Audit Logs"
+                  description="System security and financial mutations will be immutably recorded here."
+                />
+              ) : (
+                (auditLogs || []).slice(0, 20).map(log => (
+                  <div key={log.id} className="timeline-item" style={{ padding: '8px 0', borderBottom: '1px solid var(--border-color)' }}>
+                    <span className="timeline-time" style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'block' }}>
+                      {new Date(log.timestamp).toLocaleString('en-GB')} by <strong>{log.userEmail || log.userName || log.user_id}</strong>
+                    </span>
+                    <span className="timeline-desc" style={{ fontSize: '0.8rem' }}>
+                      {`Action ${log.action} on ${log.table_name} [${log.record_id}]`}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

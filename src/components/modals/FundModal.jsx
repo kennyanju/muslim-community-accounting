@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useApp } from '@/context/AppContext';
+import { validateClientFund } from '@/lib/clientValidation';
 
 export default function FundModal() {
   const { modals, closeModal, fetchAPI, addToast, refreshData } = useApp();
@@ -11,6 +12,7 @@ export default function FundModal() {
     is_restricted: false,
     description: ''
   });
+  const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
 
   const fundData = modals.fund;
@@ -18,11 +20,15 @@ export default function FundModal() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.name.trim()) {
-      addToast('Fund name is required.', 'error');
+
+    // Client-side schema validation
+    const { isValid, errors: validationErrors } = validateClientFund(form);
+    if (!isValid) {
+      setErrors(validationErrors);
       return;
     }
 
+    setErrors({});
     setSubmitting(true);
     try {
       await fetchAPI('/api/funds', {
@@ -33,6 +39,7 @@ export default function FundModal() {
       addToast(`Fund "${form.name}" created successfully.`, 'success');
       closeModal('fund');
       setForm({ name: '', is_restricted: false, description: '' });
+      setErrors({});
       refreshData();
     } catch (err) {
       addToast(err.message, 'error');
@@ -49,7 +56,7 @@ export default function FundModal() {
           <button type="button" className="btn-icon" onClick={() => closeModal('fund')} aria-label="Close modal">✕</button>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} noValidate>
           <div className="form-group">
             <label htmlFor="fund-name-input">Fund Name *</label>
             <input 
@@ -57,9 +64,13 @@ export default function FundModal() {
               type="text" 
               placeholder="e.g. Youth Activities, Ramadan Iftar, Funeral Services" 
               value={form.name} 
-              onChange={e => setForm({ ...form, name: e.target.value })} 
+              onChange={e => {
+                setForm({ ...form, name: e.target.value });
+                if (errors.name) setErrors(prev => ({ ...prev, name: null }));
+              }} 
               required 
             />
+            {errors.name && <span className="field-error">{errors.name}</span>}
           </div>
 
           <div className="form-group checkbox-group-align" style={{ margin: '14px 0' }}>

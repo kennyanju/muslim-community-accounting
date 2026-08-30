@@ -2,11 +2,13 @@
 
 import React, { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
+import { validateClientJummah } from '@/lib/clientValidation';
 
 export default function JummahModal() {
   const { modals, closeModal, balances, org, fetchAPI, addToast, refreshData } = useApp();
 
   const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState({});
   const [form, setForm] = useState({
     date: new Date().toISOString().substring(0, 10),
     totalAmount: '',
@@ -24,7 +26,7 @@ export default function JummahModal() {
   }, [form.splits]);
 
   const totalNum = parseFloat(form.totalAmount) || 0;
-  const isSplitTotalMismatch = Math.round(splitSum * 100) !== Math.round(totalNum * 100);
+  const isSplitTotalMismatch = totalNum > 0 && Math.round(splitSum * 100) !== Math.round(totalNum * 100);
 
   const handleAddSplit = () => {
     const defaultFund = balances.find(b => !b.isArchived)?.fundId || 'fund-lillah';
@@ -32,6 +34,7 @@ export default function JummahModal() {
       ...prev,
       splits: [...prev.splits, { fund_id: defaultFund, amount: '' }]
     }));
+    if (errors.splits) setErrors(prev => ({ ...prev, splits: null }));
   };
 
   const handleRemoveSplit = (index) => {
@@ -40,6 +43,7 @@ export default function JummahModal() {
       ...prev,
       splits: prev.splits.filter((_, idx) => idx !== index)
     }));
+    if (errors.splits) setErrors(prev => ({ ...prev, splits: null }));
   };
 
   const handleSplitChange = (index, field, value) => {
@@ -48,26 +52,20 @@ export default function JummahModal() {
       updated[index] = { ...updated[index], [field]: value };
       return { ...prev, splits: updated };
     });
+    if (errors.splits) setErrors(prev => ({ ...prev, splits: null }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!form.counter1.trim() || !form.counter2.trim()) {
-      addToast("Dual Witness Requirement: Both Counter 1 and Counter 2 names are mandatory for cash count auditing.", "error");
+    // Client-side schema validation
+    const { isValid, errors: validationErrors } = validateClientJummah(form);
+    if (!isValid) {
+      setErrors(validationErrors);
       return;
     }
 
-    if (form.counter1.trim().toLowerCase() === form.counter2.trim().toLowerCase()) {
-      addToast("Dual Witness Requirement: Counter 1 and Counter 2 must be two distinct individuals.", "error");
-      return;
-    }
-
-    if (isSplitTotalMismatch) {
-      addToast(`Fund allocations (£${splitSum.toFixed(2)}) must match total Jummah cash collection (£${totalNum.toFixed(2)}).`, "error");
-      return;
-    }
-
+    setErrors({});
     setSubmitting(true);
     try {
       const auditNote = `Jummah Cash Collection counted by: ${form.counter1.trim()} & ${form.counter2.trim()}.${form.notes ? ' Notes: ' + form.notes.trim() : ''}`;
@@ -123,9 +121,13 @@ export default function JummahModal() {
                 step="0.01" 
                 placeholder="0.00" 
                 value={form.totalAmount} 
-                onChange={e => setForm({ ...form, totalAmount: e.target.value })} 
+                onChange={e => {
+                  setForm({ ...form, totalAmount: e.target.value });
+                  if (errors.totalAmount) setErrors(prev => ({ ...prev, totalAmount: null }));
+                }} 
                 required 
               />
+              {errors.totalAmount && <span className="field-error">{errors.totalAmount}</span>}
             </div>
             <div className="form-group">
               <label htmlFor="jummah-date">Collection Date *</label>
@@ -133,9 +135,13 @@ export default function JummahModal() {
                 id="jummah-date"
                 type="date" 
                 value={form.date} 
-                onChange={e => setForm({ ...form, date: e.target.value })} 
+                onChange={e => {
+                  setForm({ ...form, date: e.target.value });
+                  if (errors.date) setErrors(prev => ({ ...prev, date: null }));
+                }} 
                 required 
               />
+              {errors.date && <span className="field-error">{errors.date}</span>}
             </div>
           </div>
 
@@ -149,9 +155,13 @@ export default function JummahModal() {
                 type="text" 
                 placeholder="e.g. Br. Tariq Mahmood" 
                 value={form.counter1} 
-                onChange={e => setForm({ ...form, counter1: e.target.value })} 
+                onChange={e => {
+                  setForm({ ...form, counter1: e.target.value });
+                  if (errors.counter1) setErrors(prev => ({ ...prev, counter1: null }));
+                }} 
                 required 
               />
+              {errors.counter1 && <span className="field-error">{errors.counter1}</span>}
             </div>
             <div className="form-group">
               <label htmlFor="jummah-counter-2">Counter 2 Full Name *</label>
@@ -160,9 +170,13 @@ export default function JummahModal() {
                 type="text" 
                 placeholder="e.g. Br. Usman Ali" 
                 value={form.counter2} 
-                onChange={e => setForm({ ...form, counter2: e.target.value })} 
+                onChange={e => {
+                  setForm({ ...form, counter2: e.target.value });
+                  if (errors.counter2) setErrors(prev => ({ ...prev, counter2: null }));
+                }} 
                 required 
               />
+              {errors.counter2 && <span className="field-error">{errors.counter2}</span>}
             </div>
           </div>
 
@@ -172,6 +186,8 @@ export default function JummahModal() {
               Allocated: {org.currency_symbol || '£'}{splitSum.toFixed(2)} / {org.currency_symbol || '£'}{totalNum.toFixed(2)}
             </span>
           </div>
+
+          {errors.splits && <div className="field-error" style={{ marginBottom: '10px' }}>{errors.splits}</div>}
 
           <div className="splits-container">
             {form.splits.map((split, idx) => (
@@ -229,7 +245,7 @@ export default function JummahModal() {
           </div>
 
           <div className="modal-actions">
-            <button type="button" className="btn btn-outline" onClick={() => closeModal('jummah')}>
+            <button type="button" className="btn btn-outline" onClick={() => closeModal('jummah')} disabled={submitting}>
               Cancel
             </button>
             <button 

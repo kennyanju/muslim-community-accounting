@@ -2,6 +2,7 @@ import { DatabaseController, readDB, getOrganisationFromRequest } from './db.js'
 import { hashPassword, verifyPassword, createSessionToken, verifySessionToken, getAuthenticatedUser, hasPermission } from './auth.js';
 import { validateTransactionPayload, validateDonorPayload, validateFundPayload, validateUserPayload } from './validation.js';
 import { checkRateLimit } from './rateLimit.js';
+import { validateClientJummah, validateClientFund, validateClientVoid, validateClientOrganisation } from './clientValidation.js';
 
 console.log("--------------------------------------------------");
 console.log("RUNNING AUTOMATED COMPLIANCE & SECURITY TESTS");
@@ -457,6 +458,53 @@ try {
 } catch (err) {
   assert(false, `Balance calculation test failed: ${err.message}`);
 }
+
+// Test case 22: Client-side Jummah Dual-Witness & Allocation Validation
+try {
+  const duplicateWitnessResult = validateClientJummah({
+    totalAmount: '500',
+    date: '2026-06-12',
+    counter1: 'Brother Tariq',
+    counter2: 'Brother Tariq',
+    splits: [{ fund_id: 'fund-lillah', amount: '500' }]
+  });
+  assert(
+    !duplicateWitnessResult.isValid && duplicateWitnessResult.errors.counter2.includes('distinct individuals'),
+    "Jummah validation caught duplicate witness identity"
+  );
+
+  const splitMismatchResult = validateClientJummah({
+    totalAmount: '500',
+    date: '2026-06-12',
+    counter1: 'Brother Tariq',
+    counter2: 'Brother Usman',
+    splits: [{ fund_id: 'fund-lillah', amount: '450' }]
+  });
+  assert(
+    !splitMismatchResult.isValid && splitMismatchResult.errors.splits.includes('must exactly match'),
+    "Jummah validation caught £50 split allocation discrepancy"
+  );
+} catch (err) {
+  assert(false, `Jummah client validation failed: ${err.message}`);
+}
+
+// Test case 23: Client-side Fund & Void Schema Validation
+try {
+  const emptyFundResult = validateClientFund({ name: ' ' });
+  assert(!emptyFundResult.isValid && Boolean(emptyFundResult.errors.name), "Client fund validator caught empty name");
+
+  const emptyVoidResult = validateClientVoid({ reason: ' ' });
+  assert(!emptyVoidResult.isValid && Boolean(emptyVoidResult.errors.reason), "Client void validator caught empty justification");
+
+  const invalidOrgResult = validateClientOrganisation({ name: 'Mosque', email: 'not-an-email', currency_symbol: '' });
+  assert(
+    !invalidOrgResult.isValid && Boolean(invalidOrgResult.errors.email) && Boolean(invalidOrgResult.errors.currency_symbol),
+    "Client organisation validator caught invalid email format and missing currency"
+  );
+} catch (err) {
+  assert(false, `Fund/Void/Org client validation failed: ${err.message}`);
+}
+
 
 console.log("--------------------------------------------------");
 console.log(`TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);

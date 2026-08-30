@@ -161,3 +161,122 @@ export function validateClientLogin(form) {
     errors
   };
 }
+
+/**
+ * Validate Jummah Cash Collection payload
+ */
+export function validateClientJummah(form) {
+  const errors = {};
+
+  const total = parseFloat(form.totalAmount);
+  if (isNaN(total) || total <= 0) {
+    errors.totalAmount = 'Total Jummah cash amount must be a positive number greater than £0.00.';
+  }
+
+  if (!form.date) {
+    errors.date = 'Collection date is required.';
+  }
+
+  if (!form.counter1 || !form.counter1.trim()) {
+    errors.counter1 = 'Counter 1 full name is mandatory for dual-witness cash control.';
+  }
+
+  if (!form.counter2 || !form.counter2.trim()) {
+    errors.counter2 = 'Counter 2 full name is mandatory for dual-witness cash control.';
+  } else if (form.counter1 && form.counter1.trim().toLowerCase() === form.counter2.trim().toLowerCase()) {
+    errors.counter2 = 'Counter 1 and Counter 2 must be two distinct individuals.';
+  }
+
+  if (!form.splits || form.splits.length === 0) {
+    errors.splits = 'At least one fund allocation is required.';
+  } else {
+    let splitSumCents = 0;
+    const splitErrors = [];
+
+    form.splits.forEach((s, idx) => {
+      const splitAmt = parseFloat(s.amount);
+      if (!s.fund_id) {
+        splitErrors.push(`Split #${idx + 1} is missing a designated fund.`);
+      }
+      if (isNaN(splitAmt) || splitAmt <= 0) {
+        splitErrors.push(`Split #${idx + 1} amount must be greater than zero.`);
+      } else {
+        splitSumCents += Math.round(splitAmt * 100);
+      }
+    });
+
+    if (splitErrors.length > 0) {
+      errors.splits = splitErrors[0];
+    } else {
+      const totalCents = Math.round((total || 0) * 100);
+      if (splitSumCents !== totalCents) {
+        errors.splits = `Allocated splits (£${(splitSumCents / 100).toFixed(2)}) must exactly match total cash collected (£${(totalCents / 100).toFixed(2)}).`;
+      }
+    }
+  }
+
+  return {
+    isValid: Object.keys(errors).length === 0,
+    errors
+  };
+}
+
+/**
+ * Validate Fund creation payload
+ */
+export function validateClientFund(form) {
+  const errors = {};
+
+  if (!form.name || !form.name.trim()) {
+    errors.name = 'Fund title/name is required.';
+  } else if (form.name.trim().length < 2) {
+    errors.name = 'Fund title must be at least 2 characters.';
+  }
+
+  return {
+    isValid: Object.keys(errors).length === 0,
+    errors
+  };
+}
+
+/**
+ * Validate Void transaction justification
+ */
+export function validateClientVoid(form) {
+  const errors = {};
+
+  if (!form.reason || !form.reason.trim()) {
+    errors.reason = 'A detailed void justification is mandatory for compliance auditing.';
+  } else if (form.reason.trim().length < 5) {
+    errors.reason = 'Void reason must be at least 5 characters.';
+  }
+
+  return {
+    isValid: Object.keys(errors).length === 0,
+    errors
+  };
+}
+
+/**
+ * Validate Mosque & Organisation profile
+ */
+export function validateClientOrganisation(form) {
+  const errors = {};
+
+  if (!form.name || !form.name.trim()) {
+    errors.name = 'Mosque/Organisation legal name is required.';
+  }
+
+  if (form.email && form.email.trim() && !EMAIL_REGEX.test(form.email.trim())) {
+    errors.email = 'Please enter a valid finance email address.';
+  }
+
+  if (!form.currency_symbol || !form.currency_symbol.trim()) {
+    errors.currency_symbol = 'Currency symbol is required (e.g. £, $, €).';
+  }
+
+  return {
+    isValid: Object.keys(errors).length === 0,
+    errors
+  };
+}
