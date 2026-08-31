@@ -8,7 +8,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 
 export default function TransactionsTab({ onLoadReceipt }) {
-  const { transactions, balances, org, user, addToast, refreshData, openModal, optimisticBankDeposit, fetchAPI } = useApp();
+  const { transactions, balances, org, user, addToast, refreshData, openModal, optimisticBankDeposit, optimisticReconcileLock, fetchAPI } = useApp();
 
   const [filterType, setFilterType] = useState('all');
   const [filterFund, setFilterFund] = useState('all');
@@ -66,7 +66,7 @@ export default function TransactionsTab({ onLoadReceipt }) {
     let list = [...transactions];
 
     if (filterType !== 'all') {
-      list = list.filter(t => t.type === filterType.toUpperCase());
+      list = list.filter(t => t.type?.toLowerCase() === filterType.toLowerCase());
     }
 
     if (filterFund !== 'all') {
@@ -78,15 +78,15 @@ export default function TransactionsTab({ onLoadReceipt }) {
     }
 
     if (filterStatus !== 'all') {
-      if (filterStatus === 'Active') {
-        list = list.filter(t => t.status !== 'VOIDED' && t.status !== 'FAILED');
-      } else if (filterStatus === 'Cash on Hand') {
-        list = list.filter(t => t.status === 'PENDING');
-      } else if (filterStatus === 'Banked') {
-        list = list.filter(t => t.status === 'BANKED');
-      } else if (filterStatus === 'Voided') {
-        list = list.filter(t => t.status === 'VOIDED');
-      }
+      list = list.filter(t => t.status === filterStatus);
+    }
+
+    if (filterJummahOnly) {
+      list = list.filter(t =>
+        t.reference_note?.toLowerCase().includes('jummah') ||
+        t.description?.toLowerCase().includes('jummah') ||
+        t.notes?.toLowerCase().includes('jummah')
+      );
     }
 
     if (filterDateFrom) {
@@ -105,17 +105,9 @@ export default function TransactionsTab({ onLoadReceipt }) {
       });
     }
 
-    if (filterJummahOnly) {
-      list = list.filter(t => 
-        t.reference_note?.toLowerCase().includes('jummah') ||
-        t.notes?.toLowerCase().includes('jummah') ||
-        t.notes?.toLowerCase().includes('counter')
-      );
-    }
-
-    if (debouncedSearch) {
-      const s = debouncedSearch.toLowerCase();
-      list = list.filter(t => 
+    if (debouncedSearch && debouncedSearch.trim()) {
+      const s = debouncedSearch.toLowerCase().trim();
+      list = list.filter(t =>
         t.reference_note?.toLowerCase().includes(s) ||
         t.description?.toLowerCase().includes(s) ||
         t.donorName?.toLowerCase().includes(s) ||
@@ -137,19 +129,13 @@ export default function TransactionsTab({ onLoadReceipt }) {
     optimisticBankDeposit(txId);
   };
 
-  const handleReconcileLock = async (txId) => {
+  const handleReconcileLock = (txId) => {
     const confirm = window.confirm(
       '🔒 Confirm Reconcile & Lock:\n\nThis will permanently lock this transaction and prevent any further voids, banking changes, or edits.\n\nProceed?'
     );
     if (!confirm) return;
 
-    try {
-      await fetchAPI(`/api/transactions/${txId}/reconcile`, { method: 'POST' });
-      addToast('Transaction reconciled and permanently locked.', 'success');
-      refreshData();
-    } catch (err) {
-      addToast(err.message, 'error');
-    }
+    optimisticReconcileLock(txId);
   };
 
   const triggerLedgerDownload = () => {

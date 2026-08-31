@@ -6,7 +6,7 @@ import EmptyState from '@/components/common/EmptyState';
 import { validateClientOrganisation } from '@/lib/clientValidation';
 
 export default function SettingsTab() {
-  const { org, setOrg, funds, usersList, fetchAPI, addToast, refreshData, openModal } = useApp();
+  const { org, setOrg, funds, usersList, fetchAPI, addToast, refreshData, openModal, optimisticToggleFundArchive, optimisticToggleUserStatus } = useApp();
 
   const [subtab, setSubtab] = useState('profile');
   const [submitting, setSubmitting] = useState(false);
@@ -45,31 +45,12 @@ export default function SettingsTab() {
     }
   };
 
-  const handleToggleArchiveFund = async (fund) => {
-    try {
-      await fetchAPI(`/api/funds/${fund.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ is_archived: !fund.is_archived })
-      });
-      addToast(`Fund "${fund.name}" ${fund.is_archived ? 'restored' : 'archived'}.`, 'info');
-      refreshData();
-    } catch (err) {
-      addToast(err.message, 'error');
-    }
+  const handleToggleArchiveFund = (fund) => {
+    optimisticToggleFundArchive(fund);
   };
 
-  const handleToggleUserStatus = async (targetUser) => {
-    const newStatus = targetUser.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-    try {
-      await fetchAPI(`/api/users/${targetUser.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ status: newStatus })
-      });
-      addToast(`User ${targetUser.email} marked as ${newStatus}.`, 'info');
-      refreshData();
-    } catch (err) {
-      addToast(err.message, 'error');
-    }
+  const handleToggleUserStatus = (targetUser) => {
+    optimisticToggleUserStatus(targetUser);
   };
 
   const handleDownloadBackup = () => {

@@ -1717,6 +1717,29 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
+.toast-warning {
+  background: rgba(245, 158, 11, 0.95);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.toast-action-btn {
+  background: rgba(255, 255, 255, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: #ffffff;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: 8px;
+  transition: background var(--transition-fast);
+}
+
+.toast-action-btn:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
 .toast-close {
   background: none;
   border: none;
@@ -1729,6 +1752,54 @@ body {
 }
 .toast-close:hover {
   opacity: 1;
+}
+
+/* Offline Banner */
+.offline-banner {
+  background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+  color: #ffffff;
+  padding: 10px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  font-size: 0.875rem;
+  box-shadow: 0 4px 12px rgba(185, 28, 28, 0.25);
+  z-index: 1000;
+  position: sticky;
+  top: 0;
+}
+
+.offline-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.offline-icon {
+  font-size: 1.1rem;
+  animation: pulseOffline 2s infinite ease-in-out;
+}
+
+@keyframes pulseOffline {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.15); }
+}
+
+.offline-retry-btn {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.offline-retry-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 /* Settings Subtabs & Navigation */

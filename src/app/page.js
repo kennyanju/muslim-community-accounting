@@ -37,6 +37,7 @@ const FundModal = dynamic(() => import('@/components/modals/FundModal'), { ssr: 
 const UserModal = dynamic(() => import('@/components/modals/UserModal'), { ssr: false });
 
 import Toast from '@/components/common/Toast';
+import OfflineBanner from '@/components/common/OfflineBanner';
 
 function MainApp() {
   const { activeTab, setActiveTab, user, loading, modals } = useApp();
@@ -53,6 +54,7 @@ function MainApp() {
       <Sidebar isOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
 
       <main className="main-content" id="main-content">
+        <OfflineBanner />
         <Header onOpenMobileMenu={() => setMobileMenuOpen(true)} />
 
         {loading ? (

@@ -30,6 +30,20 @@ export default function Toast() {
               {(!toast.type || toast.type === 'info') && 'ℹ'}
             </span>
             <span className="toast-message">{toast.message}</span>
+            {toast.action && (
+              <button 
+                type="button" 
+                className="toast-action-btn"
+                onClick={() => {
+                  if (typeof toast.action.onClick === 'function') {
+                    toast.action.onClick();
+                  }
+                  removeToast(toast.id);
+                }}
+              >
+                {toast.action.label || 'Retry'}
+              </button>
+            )}
           </div>
           <button 
             type="button" 

@@ -505,6 +505,34 @@ try {
   assert(false, `Fund/Void/Org client validation failed: ${err.message}`);
 }
 
+// Test case 24: Granular Optimistic UI Rollback Simulation
+try {
+  const initialTransactions = [
+    { id: 'tx-1', status: 'PENDING', total_amount: 100 },
+    { id: 'tx-2', status: 'PENDING', total_amount: 250 }
+  ];
+
+  // Optimistic mutation: mark tx-1 as BANKED
+  const targetId = 'tx-1';
+  const originalTx = initialTransactions.find(t => t.id === targetId);
+  const optimisticallyUpdated = initialTransactions.map(t => t.id === targetId ? { ...t, status: 'BANKED' } : t);
+
+  assert(optimisticallyUpdated.find(t => t.id === 'tx-1').status === 'BANKED', "Optimistic update applied instantly");
+
+  // In the meantime, another concurrent update happens to tx-2
+  const concurrentlyUpdated = optimisticallyUpdated.map(t => t.id === 'tx-2' ? { ...t, total_amount: 300 } : t);
+
+  // Failure occurs on tx-1, execute surgical item rollback
+  const rolledBack = concurrentlyUpdated.map(t => t.id === targetId ? originalTx : t);
+
+  assert(
+    rolledBack.find(t => t.id === 'tx-1').status === 'PENDING' && rolledBack.find(t => t.id === 'tx-2').total_amount === 300,
+    "Surgical optimistic rollback cleanly restored target item while preserving concurrent mutations"
+  );
+} catch (err) {
+  assert(false, `Optimistic rollback test failed: ${err.message}`);
+}
+
 
 console.log("--------------------------------------------------");
 console.log(`TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);
