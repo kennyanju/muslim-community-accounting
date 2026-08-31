@@ -80,18 +80,25 @@ function isValidOrigin(request) {
 }
 
 /**
- * Apply Standard Security Headers & Dynamic CORS
+ * Apply Standard Security Headers, Dynamic CORS, and Correlation IDs
  */
-function applySecurityAndCorsHeaders(response, request) {
+function applySecurityAndCorsHeaders(response, request, correlationId) {
   const origin = request.headers.get('origin');
   const host = request.headers.get('host');
+
+  // Attach Correlation ID for distributed tracing
+  if (correlationId) {
+    response.headers.set('X-Correlation-ID', correlationId);
+    response.headers.set('X-Request-ID', correlationId);
+  }
 
   // Dynamic CORS origin reflection (strictly whitelist-based, never wildcard with credentials)
   if (origin && isAllowedOrigin(origin, host)) {
     response.headers.set('Access-Control-Allow-Origin', origin);
     response.headers.set('Access-Control-Allow-Credentials', 'true');
     response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cookie, X-Requested-With');
+    response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cookie, X-Requested-With, X-Correlation-ID, X-Request-ID');
+    response.headers.set('Access-Control-Expose-Headers', 'X-Correlation-ID, X-Request-ID, RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset, Retry-After');
     response.headers.set('Access-Control-Max-Age', '86400');
   }
 
@@ -110,17 +117,16 @@ export function middleware(request) {
   const origin = request.headers.get('origin');
   const host = request.headers.get('host');
 
+  // Extract or generate unique Correlation ID for request tracing
+  const correlationId = 
+    request.headers.get('x-correlation-id') || 
+    request.headers.get('x-request-id') || 
+    `cid_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 9)}`;
+
   // 1. CORS Preflight OPTIONS Handling
   if (method === 'OPTIONS') {
     const preflightRes = new NextResponse(null, { status: 204 });
-    if (origin && isAllowedOrigin(origin, host)) {
-      preflightRes.headers.set('Access-Control-Allow-Origin', origin);
-      preflightRes.headers.set('Access-Control-Allow-Credentials', 'true');
-      preflightRes.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-      preflightRes.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cookie, X-Requested-With');
-      preflightRes.headers.set('Access-Control-Max-Age', '86400');
-    }
-    return preflightRes;
+    return applySecurityAndCorsHeaders(preflightRes, request, correlationId);
   }
 
   // 2. CSRF Protection for state mutations
@@ -129,7 +135,7 @@ export function middleware(request) {
       { success: false, error: { code: 'FORBIDDEN', message: 'CSRF validation failed: Cross-origin mutation blocked.' } },
       { status: 403 }
     );
-    return applySecurityAndCorsHeaders(errorRes, request);
+    return applySecurityAndCorsHeaders(errorRes, request, correlationId);
   }
 
   // 3. Enforce Max Request Payload Size (1MB default, 10MB for database backups)
@@ -141,7 +147,7 @@ export function middleware(request) {
         { success: false, error: { code: 'PAYLOAD_TOO_LARGE', message: `Request payload exceeds maximum permitted size of ${maxLimit / (1024 * 1024)}MB.` } },
         { status: 413 }
       );
-      return applySecurityAndCorsHeaders(payloadErrorRes, request);
+      return applySecurityAndCorsHeaders(payloadErrorRes, request, correlationId);
     }
   }
 
@@ -168,10 +174,10 @@ export function middleware(request) {
         { success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required or session expired' } },
         { status: 401 }
       );
-      return applySecurityAndCorsHeaders(unauthorizedRes, request);
+      return applySecurityAndCorsHeaders(unauthorizedRes, request, correlationId);
     }
     const nextRes = NextResponse.next();
-    return applySecurityAndCorsHeaders(nextRes, request);
+    return applySecurityAndCorsHeaders(nextRes, request, correlationId);
   }
 
   // If visiting a protected page without valid session, redirect to /login with redirect query param
@@ -181,7 +187,7 @@ export function middleware(request) {
       loginUrl.searchParams.set('redirect', pathname);
     }
     const redirectRes = NextResponse.redirect(loginUrl);
-    return applySecurityAndCorsHeaders(redirectRes, request);
+    return applySecurityAndCorsHeaders(redirectRes, request, correlationId);
   }
 
   // If authenticated user visits /login, redirect to dashboard / or redirect destination
@@ -190,11 +196,11 @@ export function middleware(request) {
     const destination = redirectParam && redirectParam.startsWith('/') ? redirectParam : '/';
     const dashboardUrl = new URL(destination, request.url);
     const redirectRes = NextResponse.redirect(dashboardUrl);
-    return applySecurityAndCorsHeaders(redirectRes, request);
+    return applySecurityAndCorsHeaders(redirectRes, request, correlationId);
   }
 
   const nextRes = NextResponse.next();
-  return applySecurityAndCorsHeaders(nextRes, request);
+  return applySecurityAndCorsHeaders(nextRes, request, correlationId);
 }
 
 export const config = {

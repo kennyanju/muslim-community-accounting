@@ -9,5 +9,21 @@
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
+  },
+  "env": {
+    "staging": {
+      "name": "muslim-community-accounting-staging",
+      "vars": {
+        "NODE_ENV": "production",
+        "NEXT_PUBLIC_APP_URL": "https://staging.bsmc.org.uk"
+      }
+    },
+    "production": {
+      "name": "muslim-community-accounting-production",
+      "vars": {
+        "NODE_ENV": "production",
+        "NEXT_PUBLIC_APP_URL": "https://finance.bsmc.org.uk"
+      }
+    }
   }
 }

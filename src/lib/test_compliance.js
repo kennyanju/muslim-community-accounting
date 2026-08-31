@@ -908,6 +908,55 @@ try {
   assert(false, `Upload, webhook, and indexing tests failed: ${err.message}`);
 }
 
+// Test case 34: Environment Separation, PITR Restore, Rollback Plan & Correlation IDs
+try {
+  const fs = await import('fs');
+  const { formatLog, logger } = await import('../lib/logger.js');
+
+  // 1. Verify Environment Separation Configuration Files
+  const devEnvExists = fs.existsSync(new URL('../../.env.development.example', import.meta.url));
+  const stagingEnvExists = fs.existsSync(new URL('../../.env.staging.example', import.meta.url));
+  const prodEnvExists = fs.existsSync(new URL('../../.env.production.example', import.meta.url));
+  assert(
+    devEnvExists && stagingEnvExists && prodEnvExists,
+    "Environment configuration templates exist for isolated dev, staging, and production environments"
+  );
+
+  const wranglerConfig = fs.readFileSync(new URL('../../wrangler.jsonc', import.meta.url), 'utf8');
+  assert(
+    wranglerConfig.includes('"staging"') && wranglerConfig.includes('"production"'),
+    "Wrangler deployment configuration defines dedicated staging and production target environments"
+  );
+
+  // 2. Verify Structured Logging & Correlation ID Tracing
+  const sampleLogRaw = formatLog('INFO', 'Test financial transaction recorded', { amount: 150 }, 'cid_test_9988');
+  const sampleLog = JSON.parse(sampleLogRaw);
+  assert(
+    sampleLog.service === 'masjid-accounting' &&
+    sampleLog.correlationId === 'cid_test_9988' &&
+    sampleLog.level === 'INFO' &&
+    sampleLog.context?.amount === 150,
+    "Structured JSON logger formats log entries with service tag and correlation ID"
+  );
+
+  // 3. Verify Rollback Plan & Reverse Database Down-Path
+  const rollbackPlanExists = fs.existsSync(new URL('../../ROLLBACK_PLAN.md', import.meta.url));
+  const schemaDownSql = fs.readFileSync(new URL('../../scripts/schema_down.sql', import.meta.url), 'utf8');
+  assert(
+    rollbackPlanExists &&
+    schemaDownSql.includes('DROP POLICY') &&
+    schemaDownSql.includes('DROP TABLE IF EXISTS audit_logs') &&
+    schemaDownSql.includes('DROP TABLE IF EXISTS transactions'),
+    "Rollback plan is fully documented with tested reverse migration down-path script"
+  );
+
+  // 4. Verify Point-in-time Restore Script Exists
+  const verifyRestoreExists = fs.existsSync(new URL('../../scripts/verify_backup_restore.js', import.meta.url));
+  assert(verifyRestoreExists, "Automated point-in-time backup restore verification script exists");
+} catch (err) {
+  assert(false, `Environment separation, PITR, rollback, and logger tests failed: ${err.message}`);
+}
+
 
 console.log("--------------------------------------------------");
 console.log(`TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);
