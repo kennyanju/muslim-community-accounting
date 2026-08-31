@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { useApp } from '@/context/AppContext';
 import { validateClientJummah } from '@/lib/clientValidation';
+import { useModalFocusTrap } from '@/hooks/useModalFocusTrap';
 
 export default function JummahModal() {
   const { modals, closeModal, balances, org, fetchAPI, addToast, refreshData } = useApp();
+  const modalContainerRef = useRef(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
@@ -33,17 +35,8 @@ export default function JummahModal() {
     closeModal('jummah');
   }, [closeModal]);
 
-  // Keyboard navigation: Dismiss modal on Escape key
-  useEffect(() => {
-    if (!modals.jummah) return;
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        handleClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modals.jummah, handleClose]);
+  // Focus trapping & accessible keyboard cycling
+  useModalFocusTrap(Boolean(modals.jummah), handleClose, modalContainerRef);
 
   const handleAddSplit = () => {
     const defaultFund = balances.find(b => !b.isArchived)?.fundId || 'fund-lillah';
@@ -117,7 +110,7 @@ export default function JummahModal() {
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="jummah-modal-title">
-      <div className="modal-card glass-card">
+      <div className="modal-card glass-card" ref={modalContainerRef}>
         <div className="modal-header">
           <h3 id="jummah-modal-title">🕌 Log Friday (Jummah) Cash Collection</h3>
           <button type="button" className="btn-icon" onClick={handleClose} aria-label="Close modal">✕</button>

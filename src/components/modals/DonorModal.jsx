@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { useApp } from '@/context/AppContext';
 import { validateClientDonor } from '@/lib/clientValidation';
+import { useModalFocusTrap } from '@/hooks/useModalFocusTrap';
 
 const INITIAL_DONOR_FORM = {
   name: '',
@@ -16,6 +17,7 @@ const INITIAL_DONOR_FORM = {
 
 export default function DonorModal() {
   const { modals, closeModal, fetchAPI, addToast, refreshData } = useApp();
+  const modalContainerRef = useRef(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
@@ -27,17 +29,8 @@ export default function DonorModal() {
     closeModal('donor');
   }, [closeModal]);
 
-  // Keyboard navigation: Dismiss modal on Escape key
-  useEffect(() => {
-    if (!modals.donor) return;
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        handleClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modals.donor, handleClose]);
+  // Focus trapping & accessible keyboard cycling
+  useModalFocusTrap(Boolean(modals.donor), handleClose, modalContainerRef);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -73,7 +66,7 @@ export default function DonorModal() {
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="donor-modal-title">
-      <div className="modal-card glass-card">
+      <div className="modal-card glass-card" ref={modalContainerRef}>
         <div className="modal-header">
           <h3 id="donor-modal-title">👤 Register New Donor Profile</h3>
           <button 

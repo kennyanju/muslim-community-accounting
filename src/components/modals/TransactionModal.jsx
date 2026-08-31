@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { useApp } from '@/context/AppContext';
 import { validateClientTransaction } from '@/lib/clientValidation';
 import { formatCurrency } from '@/utils/formatters';
+import { useModalFocusTrap } from '@/hooks/useModalFocusTrap';
 
 const INCOME_CATEGORIES = ["Donation", "Zakat", "Fitrana", "Madrasah Fees", "Event Tickets", "Interest", "Other"];
 const EXPENSE_CATEGORIES = ["Utilities", "Salaries", "Maintenance", "Charitable Payout", "Office Supplies", "Travel", "Other"];
@@ -23,6 +24,7 @@ const INITIAL_FORM = {
 
 export default function TransactionModal() {
   const { modals, closeModal, balances, donors, org, fetchAPI, addToast, refreshData } = useApp();
+  const modalContainerRef = useRef(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
@@ -53,17 +55,8 @@ export default function TransactionModal() {
     closeModal('transaction');
   }, [closeModal]);
 
-  // Keyboard navigation: Dismiss modal on Escape key
-  useEffect(() => {
-    if (!modals.transaction) return;
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        handleClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modals.transaction, handleClose]);
+  // Focus trapping & accessible keyboard cycling
+  useModalFocusTrap(Boolean(modals.transaction), handleClose, modalContainerRef);
 
   const handleTypeChange = (type) => {
     setForm(prev => ({
@@ -153,7 +146,7 @@ export default function TransactionModal() {
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="tx-modal-title">
-      <div className="modal-card glass-card">
+      <div className="modal-card glass-card" ref={modalContainerRef}>
         <div className="modal-header">
           <h3 id="tx-modal-title">Record Financial Transaction</h3>
           <button 

@@ -104,15 +104,15 @@
   "transaction_splits": [],
   "audit_logs": [
     {
-      "id": "log-42484c62",
+      "id": "log-96157db9",
       "table_name": "database",
       "record_id": "clean_reset",
       "action": "RESET",
       "user_id": "user-sec-1",
       "user_email": "secretary@bsmc.org.uk",
       "user_name": "Financial Secretary",
-      "timestamp": "2026-08-31T08:12:56.767Z"
+      "timestamp": "2026-08-31T08:28:16.744Z"
     }
   ],
-  "receipt_counter": 90
+  "receipt_counter": 100
 }

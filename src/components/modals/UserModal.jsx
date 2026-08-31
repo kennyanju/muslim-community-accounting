@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { useApp } from '@/context/AppContext';
 import { validateClientUser } from '@/lib/clientValidation';
+import { useModalFocusTrap } from '@/hooks/useModalFocusTrap';
 
 const INITIAL_USER_FORM = {
   name: '',
@@ -13,6 +14,7 @@ const INITIAL_USER_FORM = {
 
 export default function UserModal() {
   const { modals, closeModal, fetchAPI, addToast, refreshData } = useApp();
+  const modalContainerRef = useRef(null);
 
   const [form, setForm] = useState(INITIAL_USER_FORM);
   const [errors, setErrors] = useState({});
@@ -24,17 +26,8 @@ export default function UserModal() {
     closeModal('user');
   }, [closeModal]);
 
-  // Keyboard navigation: Dismiss modal on Escape key
-  useEffect(() => {
-    if (!modals.user) return;
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        handleClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modals.user, handleClose]);
+  // Focus trapping & accessible keyboard cycling
+  useModalFocusTrap(Boolean(modals.user), handleClose, modalContainerRef);
 
   const userData = modals.user;
   if (!userData) return null;
@@ -71,7 +64,7 @@ export default function UserModal() {
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="user-modal-title">
-      <div className="modal-card glass-card" style={{ maxWidth: '520px' }}>
+      <div className="modal-card glass-card" ref={modalContainerRef} style={{ maxWidth: '520px' }}>
         <div className="modal-header">
           <h3 id="user-modal-title">👥 Add Committee User Account</h3>
           <button 

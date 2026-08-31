@@ -78,7 +78,7 @@ export default function Error({ error, reset }) {
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
           <button
             type="button"
             onClick={() => reset()}
@@ -94,7 +94,8 @@ export default function Error({ error, reset }) {
               fontWeight: 700,
               border: 'none',
               cursor: 'pointer',
-              fontSize: '0.95rem'
+              fontSize: '0.95rem',
+              minHeight: '44px'
             }}
           >
             🔄 Try Again
@@ -117,7 +118,8 @@ export default function Error({ error, reset }) {
               fontWeight: 600,
               border: '1px solid var(--border-color, #334155)',
               cursor: 'pointer',
-              fontSize: '0.95rem'
+              fontSize: '0.95rem',
+              minHeight: '44px'
             }}
           >
             Go to Home

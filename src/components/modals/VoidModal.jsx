@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { useApp } from '@/context/AppContext';
 import { validateClientVoid } from '@/lib/clientValidation';
+import { useModalFocusTrap } from '@/hooks/useModalFocusTrap';
 
 export default function VoidModal() {
   const { modals, closeModal, org, fetchAPI, addToast, refreshData } = useApp();
+  const modalContainerRef = useRef(null);
 
   const [reason, setReason] = useState('');
   const [errors, setErrors] = useState({});
@@ -17,17 +19,8 @@ export default function VoidModal() {
     setErrors({});
   }, [closeModal]);
 
-  // Keyboard navigation: Dismiss modal on Escape key
-  useEffect(() => {
-    if (!modals.voidTx) return;
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') {
-        handleClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [modals.voidTx, handleClose]);
+  // Focus trapping & accessible keyboard cycling
+  useModalFocusTrap(Boolean(modals.voidTx), handleClose, modalContainerRef);
 
   const targetTx = modals.voidTx;
   if (!targetTx) return null;
@@ -51,9 +44,7 @@ export default function VoidModal() {
       });
 
       addToast(`Transaction ${targetTx.receipt_number || targetTx.id} marked as voided.`, 'info');
-      closeModal('voidTx');
-      setReason('');
-      setErrors({});
+      handleClose();
       refreshData();
     } catch (err) {
       addToast(err.message, 'error');
@@ -64,7 +55,7 @@ export default function VoidModal() {
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="void-modal-title">
-      <div className="modal-card glass-card" style={{ maxWidth: '520px' }}>
+      <div className="modal-card glass-card" ref={modalContainerRef} style={{ maxWidth: '520px' }}>
         <div className="modal-header">
           <h3 id="void-modal-title">🚫 Confirm Transaction Void</h3>
           <button type="button" className="btn-icon" onClick={handleClose} aria-label="Close modal">✕</button>

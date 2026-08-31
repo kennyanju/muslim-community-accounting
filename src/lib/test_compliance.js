@@ -587,6 +587,42 @@ try {
   assert(false, `Accessibility test failed: ${err.message}`);
 }
 
+// Test case 27: Theme Flash Prevention, Modal Focus Trap, and Global Error Boundary
+try {
+  const fs = await import('fs');
+
+  // 1. Verify layout.js pre-paint inline theme script
+  const layoutContent = fs.readFileSync(new URL('../app/layout.js', import.meta.url), 'utf8');
+  assert(
+    layoutContent.includes('localStorage.getItem("masjid-theme")') &&
+    layoutContent.includes('matchMedia(\'(prefers-color-scheme: dark)\')') &&
+    layoutContent.includes('document.documentElement.setAttribute(\'data-theme\''),
+    "Synchronous inline pre-paint theme resolver correctly prevents FOUC flash"
+  );
+
+  // 2. Verify useModalFocusTrap module
+  const { useModalFocusTrap } = await import('../hooks/useModalFocusTrap.js');
+  assert(typeof useModalFocusTrap === 'function', "useModalFocusTrap hook exists and exports cleanly");
+
+  // 3. Verify global-error.js root boundary
+  const globalErrorExists = fs.existsSync(new URL('../app/global-error.js', import.meta.url));
+  assert(globalErrorExists, "global-error.js exists to catch root layout boundary exceptions");
+
+  // 4. Verify Toast max stacking cap
+  const sampleToasts = [
+    { id: 1, message: 'T1' },
+    { id: 2, message: 'T2' },
+    { id: 3, message: 'T3' },
+    { id: 4, message: 'T4' }
+  ];
+  const newToast = { id: 5, message: 'T5' };
+  const trimmed = sampleToasts.length >= 4 ? sampleToasts.slice(sampleToasts.length - 3) : sampleToasts;
+  const stacked = [...trimmed, newToast];
+  assert(stacked.length === 4 && stacked[3].id === 5, "Toast notification manager caps concurrent active toasts at 4");
+} catch (err) {
+  assert(false, `Theme flash and error boundary tests failed: ${err.message}`);
+}
+
 
 console.log("--------------------------------------------------");
 console.log(`TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);

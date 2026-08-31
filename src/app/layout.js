@@ -58,7 +58,7 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={`${inter.variable} ${outfit.variable}`} data-theme="system">
+    <html lang="en" className={`${inter.variable} ${outfit.variable}`} suppressHydrationWarning>
       <head>
         <meta name="color-scheme" content="light dark" />
         <link rel="manifest" href="/manifest.json" />
@@ -67,10 +67,18 @@ export default function RootLayout({ children }) {
         <script
           dangerouslySetInnerHTML={{
             __html: `
-              try {
-                const savedTheme = localStorage.getItem("masjid-theme") || localStorage.getItem("bsmc-theme") || "system";
-                document.documentElement.setAttribute('data-theme', savedTheme);
-              } catch (e) {}
+              (function() {
+                try {
+                  var saved = localStorage.getItem("masjid-theme") || localStorage.getItem("bsmc-theme") || "system";
+                  var resolved = saved;
+                  if (saved === 'system') {
+                    resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                  }
+                  document.documentElement.setAttribute('data-theme', resolved);
+                } catch (e) {
+                  document.documentElement.setAttribute('data-theme', 'light');
+                }
+              })();
             `,
           }}
         />

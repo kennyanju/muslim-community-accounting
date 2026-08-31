@@ -60,12 +60,8 @@ export function AppProvider({ children }) {
     setToasts(prev => {
       // Cap toasts to max 4 active to prevent viewport overflow
       const trimmed = prev.length >= 4 ? prev.slice(prev.length - 3) : prev;
-      return [...trimmed, { id, message, type, action: options.action }];
+      return [...trimmed, { id, message, type, action: options.action, duration }];
     });
-
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    }, duration);
   }, []);
 
   const removeToast = useCallback((id) => {
@@ -90,6 +86,19 @@ export function AppProvider({ children }) {
     }
     applyTheme(newTheme);
   }, [applyTheme]);
+
+  // Listen for real-time OS theme preference changes when theme is set to 'system'
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleSystemThemeChange = () => {
+      if (theme === 'system') {
+        applyTheme('system');
+      }
+    };
+    mediaQuery.addEventListener('change', handleSystemThemeChange);
+    return () => mediaQuery.removeEventListener('change', handleSystemThemeChange);
+  }, [theme, applyTheme]);
 
   // Unified fetch helper that extracts .data from standard API response envelopes
   const fetchAPI = useCallback(async (url, options = {}) => {
