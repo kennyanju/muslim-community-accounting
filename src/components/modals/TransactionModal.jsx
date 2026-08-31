@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import { validateClientTransaction } from '@/lib/clientValidation';
 import { formatCurrency } from '@/utils/formatters';
@@ -47,11 +47,23 @@ export default function TransactionModal() {
     });
   }, [form.type, form.splits, form.category, form.notes, balances]);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setErrors({});
     setForm(INITIAL_FORM);
     closeModal('transaction');
-  };
+  }, [closeModal]);
+
+  // Keyboard navigation: Dismiss modal on Escape key
+  useEffect(() => {
+    if (!modals.transaction) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [modals.transaction, handleClose]);
 
   const handleTypeChange = (type) => {
     setForm(prev => ({

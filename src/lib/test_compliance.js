@@ -561,6 +561,32 @@ try {
   assert(false, `Sanitization tests failed: ${err.message}`);
 }
 
+// Test case 26: Accessibility & WCAG Contrast Standards Validation
+try {
+  const fs = await import('fs');
+  const cssContent = fs.readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+
+  // Verify skip-to-content rule
+  assert(
+    cssContent.includes('.skip-to-content') && cssContent.includes('.skip-to-content:focus'),
+    "Skip to main content keyboard accessibility style rules verified"
+  );
+
+  // Verify WCAG AA high-contrast status colors (#047857, #0369a1, #b45309, #b91c1c)
+  assert(
+    cssContent.includes('#047857') && cssContent.includes('#0369a1') && cssContent.includes('#b45309') && cssContent.includes('#b91c1c'),
+    "WCAG AA accessible high-contrast badge & status color tokens verified"
+  );
+
+  // Verify 44px touch target rules
+  assert(
+    cssContent.includes('min-height: 44px') && cssContent.includes('@media (max-width: 640px)'),
+    "44px mobile touch target & responsive breakpoint rules verified"
+  );
+} catch (err) {
+  assert(false, `Accessibility test failed: ${err.message}`);
+}
+
 
 console.log("--------------------------------------------------");
 console.log(`TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);

@@ -248,7 +248,7 @@ export default function TransactionsTab({ onLoadReceipt }) {
       </div>
 
       <div className="ledger-table-card glass-card">
-        <div className="table-wrapper">
+        <div className="table-wrapper" tabIndex={0} role="region" aria-label="Financial transactions ledger table, scrollable horizontally">
           {paginatedTransactions.length === 0 ? (
             <EmptyState
               icon={isFiltered ? '🔍' : '📑'}

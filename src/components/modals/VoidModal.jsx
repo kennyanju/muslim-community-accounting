@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import { validateClientVoid } from '@/lib/clientValidation';
 
@@ -10,6 +10,24 @@ export default function VoidModal() {
   const [reason, setReason] = useState('');
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+
+  const handleClose = useCallback(() => {
+    closeModal('voidTx');
+    setReason('');
+    setErrors({});
+  }, [closeModal]);
+
+  // Keyboard navigation: Dismiss modal on Escape key
+  useEffect(() => {
+    if (!modals.voidTx) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [modals.voidTx, handleClose]);
 
   const targetTx = modals.voidTx;
   if (!targetTx) return null;
@@ -49,7 +67,7 @@ export default function VoidModal() {
       <div className="modal-card glass-card" style={{ maxWidth: '520px' }}>
         <div className="modal-header">
           <h3 id="void-modal-title">🚫 Confirm Transaction Void</h3>
-          <button type="button" className="btn-icon" onClick={() => closeModal('voidTx')} aria-label="Close modal">✕</button>
+          <button type="button" className="btn-icon" onClick={handleClose} aria-label="Close modal">✕</button>
         </div>
 
         <form onSubmit={handleConfirmVoid} noValidate>

@@ -109,7 +109,7 @@ export default function DonorsTab() {
       </div>
 
       <div className="ledger-table-card glass-card">
-        <div className="table-wrapper">
+        <div className="table-wrapper" tabIndex={0} role="region" aria-label="Donors directory table, scrollable horizontally">
           {paginatedDonors.length === 0 ? (
             <EmptyState
               icon={isFiltered ? '🔍' : '👥'}

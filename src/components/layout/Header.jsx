@@ -27,7 +27,7 @@ export default function Header({ onOpenMobileMenu }) {
   };
 
   return (
-    <header className={`main-header ${isScrolled ? 'header-scrolled' : ''}`} aria-label="Page Header">
+    <header className={`main-header ${isScrolled ? 'header-scrolled' : ''}`} role="banner" aria-label="Page Header">
       <div className="header-left">
         <button 
           type="button" 

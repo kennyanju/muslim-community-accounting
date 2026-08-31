@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import { validateClientJummah } from '@/lib/clientValidation';
 
@@ -27,6 +27,23 @@ export default function JummahModal() {
 
   const totalNum = parseFloat(form.totalAmount) || 0;
   const isSplitTotalMismatch = totalNum > 0 && Math.round(splitSum * 100) !== Math.round(totalNum * 100);
+
+  const handleClose = useCallback(() => {
+    setErrors({});
+    closeModal('jummah');
+  }, [closeModal]);
+
+  // Keyboard navigation: Dismiss modal on Escape key
+  useEffect(() => {
+    if (!modals.jummah) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [modals.jummah, handleClose]);
 
   const handleAddSplit = () => {
     const defaultFund = balances.find(b => !b.isArchived)?.fundId || 'fund-lillah';
@@ -103,7 +120,7 @@ export default function JummahModal() {
       <div className="modal-card glass-card">
         <div className="modal-header">
           <h3 id="jummah-modal-title">🕌 Log Friday (Jummah) Cash Collection</h3>
-          <button type="button" className="btn-icon" onClick={() => closeModal('jummah')} aria-label="Close modal">✕</button>
+          <button type="button" className="btn-icon" onClick={handleClose} aria-label="Close modal">✕</button>
         </div>
 
         <form onSubmit={handleSubmit}>

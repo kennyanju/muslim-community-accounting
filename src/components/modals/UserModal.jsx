@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import { validateClientUser } from '@/lib/clientValidation';
 
@@ -18,14 +18,26 @@ export default function UserModal() {
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
 
-  const userData = modals.user;
-  if (!userData) return null;
-
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setErrors({});
     setForm(INITIAL_USER_FORM);
     closeModal('user');
-  };
+  }, [closeModal]);
+
+  // Keyboard navigation: Dismiss modal on Escape key
+  useEffect(() => {
+    if (!modals.user) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [modals.user, handleClose]);
+
+  const userData = modals.user;
+  if (!userData) return null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();

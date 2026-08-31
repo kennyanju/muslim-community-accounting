@@ -51,9 +51,12 @@ function MainApp() {
 
   return (
     <div className="app-container">
+      <a href="#main-viewport" className="skip-to-content">
+        Skip to main content
+      </a>
       <Sidebar isOpen={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)} />
 
-      <main className="main-content" id="main-content">
+      <main className="main-content" id="main-viewport" role="main">
         <OfflineBanner />
         <Header onOpenMobileMenu={() => setMobileMenuOpen(true)} />
 

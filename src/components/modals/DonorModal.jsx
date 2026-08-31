@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import { validateClientDonor } from '@/lib/clientValidation';
 
@@ -21,11 +21,23 @@ export default function DonorModal() {
   const [errors, setErrors] = useState({});
   const [form, setForm] = useState(INITIAL_DONOR_FORM);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setErrors({});
     setForm(INITIAL_DONOR_FORM);
     closeModal('donor');
-  };
+  }, [closeModal]);
+
+  // Keyboard navigation: Dismiss modal on Escape key
+  useEffect(() => {
+    if (!modals.donor) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [modals.donor, handleClose]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

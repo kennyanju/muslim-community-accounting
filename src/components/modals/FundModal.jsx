@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import { validateClientFund } from '@/lib/clientValidation';
 
@@ -14,6 +14,24 @@ export default function FundModal() {
   });
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+
+  const handleClose = useCallback(() => {
+    closeModal('fund');
+    setForm({ name: '', is_restricted: false, description: '' });
+    setErrors({});
+  }, [closeModal]);
+
+  // Keyboard navigation: Dismiss modal on Escape key
+  useEffect(() => {
+    if (!modals.fund) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [modals.fund, handleClose]);
 
   const fundData = modals.fund;
   if (!fundData) return null;
@@ -37,9 +55,7 @@ export default function FundModal() {
       });
 
       addToast(`Fund "${form.name}" created successfully.`, 'success');
-      closeModal('fund');
-      setForm({ name: '', is_restricted: false, description: '' });
-      setErrors({});
+      handleClose();
       refreshData();
     } catch (err) {
       addToast(err.message, 'error');
@@ -53,7 +69,7 @@ export default function FundModal() {
       <div className="modal-card glass-card" style={{ maxWidth: '520px' }}>
         <div className="modal-header">
           <h3 id="fund-modal-title">💼 Add New Islamic Fund</h3>
-          <button type="button" className="btn-icon" onClick={() => closeModal('fund')} aria-label="Close modal">✕</button>
+          <button type="button" className="btn-icon" onClick={handleClose} aria-label="Close modal">✕</button>
         </div>
 
         <form onSubmit={handleSubmit} noValidate>
