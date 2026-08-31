@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
+import Link from 'next/link';
 import { reportClientError } from '@/lib/errorReporting';
 
 export default function GlobalError({ error, reset }) {
@@ -86,15 +87,9 @@ export default function GlobalError({ error, reset }) {
             <button type="button" className="btn-primary" onClick={() => reset()}>
               🔄 Restart Application
             </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => {
-                if (typeof window !== 'undefined') window.location.href = '/';
-              }}
-            >
+            <Link href="/" className="btn-secondary" style={{ textDecoration: 'none' }}>
               Go to Home
-            </button>
+            </Link>
           </div>
         </div>
       </body>

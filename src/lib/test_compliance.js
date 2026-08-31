@@ -810,6 +810,45 @@ try {
   assert(false, `IDOR, RLS, and Secrets tests failed: ${err.message}`);
 }
 
+// Test case 32: Dependency Scans, CORS Lockdown, Security Headers & Sanitized Error Responses
+try {
+  const fs = await import('fs');
+  const { apiError } = await import('../lib/response.js');
+
+  // 1. Verify 500 error sanitization in production
+  const origEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  const prodErrRes = apiError('FATAL: raw database error syntax error at SELECT * FROM secrets', 500);
+  const prodErrJson = await prodErrRes.json();
+  process.env.NODE_ENV = origEnv;
+
+  assert(
+    !prodErrJson.error.message.includes('SELECT') &&
+    !prodErrJson.error.message.includes('secrets') &&
+    prodErrJson.error.message.includes('unexpected server error'),
+    "apiError safely sanitizes 500 internal server exceptions in production without leaking internal details"
+  );
+
+  // 2. Verify CORS lockdown & Security Headers in middleware
+  const middlewareContent = fs.readFileSync(new URL('../middleware.js', import.meta.url), 'utf8');
+  assert(
+    middlewareContent.includes('isAllowedOrigin(origin, host)') &&
+    middlewareContent.includes('Access-Control-Allow-Origin') &&
+    middlewareContent.includes('X-Frame-Options\', \'DENY\'') &&
+    middlewareContent.includes('X-Content-Type-Options\', \'nosniff\''),
+    "Global middleware dynamically reflects whitelisted CORS origins and enforces strict security headers"
+  );
+
+  // 3. Verify CI/CD dependency vulnerability scan step
+  const deployYaml = fs.readFileSync(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  assert(
+    deployYaml.includes('npm audit --audit-level=high'),
+    "CI/CD workflow incorporates automated high-severity dependency vulnerability auditing"
+  );
+} catch (err) {
+  assert(false, `CORS, security headers, and error sanitization tests failed: ${err.message}`);
+}
+
 
 console.log("--------------------------------------------------");
 console.log(`TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);

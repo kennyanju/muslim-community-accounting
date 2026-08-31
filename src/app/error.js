@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
+import Link from 'next/link';
 import { reportClientError } from '@/lib/errorReporting';
 
 export default function Error({ error, reset }) {
@@ -101,11 +102,8 @@ export default function Error({ error, reset }) {
             🔄 Try Again
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              if (typeof window !== 'undefined') window.location.href = '/';
-            }}
+          <Link
+            href="/"
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -119,11 +117,12 @@ export default function Error({ error, reset }) {
               border: '1px solid var(--border-color, #334155)',
               cursor: 'pointer',
               fontSize: '0.95rem',
-              minHeight: '44px'
+              minHeight: '44px',
+              textDecoration: 'none'
             }}
           >
             Go to Home
-          </button>
+          </Link>
         </div>
       </div>
     </div>

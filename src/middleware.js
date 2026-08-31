@@ -27,6 +27,34 @@ function isSessionValid(token) {
 }
 
 /**
+ * Validates Origin/Referer against Host header and whitelisted domains (CORS & CSRF Defense)
+ */
+function isAllowedOrigin(origin, host) {
+  if (!origin) return false;
+  try {
+    const originUrl = new URL(origin);
+    if (originUrl.host === host) return true;
+
+    // Check configured environment origins
+    const allowedEnv = [
+      process.env.NEXT_PUBLIC_APP_URL,
+      ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : [])
+    ].filter(Boolean);
+
+    return allowedEnv.some(allowed => {
+      try {
+        const parsed = new URL(allowed.trim());
+        return parsed.host === originUrl.host;
+      } catch (e) {
+        return false;
+      }
+    });
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
  * Validates Origin/Referer against Host header for state-mutating requests (CSRF Defense)
  */
 function isValidOrigin(request) {
@@ -42,34 +70,71 @@ function isValidOrigin(request) {
     if (!referer) return true; // Native direct fetch
     try {
       const refUrl = new URL(referer);
-      return refUrl.host === host;
+      return refUrl.host === host || isAllowedOrigin(referer, host);
     } catch (e) {
       return false;
     }
   }
 
-  try {
-    const originUrl = new URL(origin);
-    return originUrl.host === host;
-  } catch (e) {
-    return false;
+  return isAllowedOrigin(origin, host);
+}
+
+/**
+ * Apply Standard Security Headers & Dynamic CORS
+ */
+function applySecurityAndCorsHeaders(response, request) {
+  const origin = request.headers.get('origin');
+  const host = request.headers.get('host');
+
+  // Dynamic CORS origin reflection (strictly whitelist-based, never wildcard with credentials)
+  if (origin && isAllowedOrigin(origin, host)) {
+    response.headers.set('Access-Control-Allow-Origin', origin);
+    response.headers.set('Access-Control-Allow-Credentials', 'true');
+    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cookie, X-Requested-With');
+    response.headers.set('Access-Control-Max-Age', '86400');
   }
+
+  // Strict Security Headers
+  response.headers.set('X-Content-Type-Options', 'nosniff');
+  response.headers.set('X-Frame-Options', 'DENY');
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  response.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+
+  return response;
 }
 
 export function middleware(request) {
-  // 1. CSRF Protection for state mutations
+  const { pathname } = request.nextUrl;
+  const method = request.method?.toUpperCase();
+  const origin = request.headers.get('origin');
+  const host = request.headers.get('host');
+
+  // 1. CORS Preflight OPTIONS Handling
+  if (method === 'OPTIONS') {
+    const preflightRes = new NextResponse(null, { status: 204 });
+    if (origin && isAllowedOrigin(origin, host)) {
+      preflightRes.headers.set('Access-Control-Allow-Origin', origin);
+      preflightRes.headers.set('Access-Control-Allow-Credentials', 'true');
+      preflightRes.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      preflightRes.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cookie, X-Requested-With');
+      preflightRes.headers.set('Access-Control-Max-Age', '86400');
+    }
+    return preflightRes;
+  }
+
+  // 2. CSRF Protection for state mutations
   if (!isValidOrigin(request)) {
-    return NextResponse.json(
+    const errorRes = NextResponse.json(
       { success: false, error: { code: 'FORBIDDEN', message: 'CSRF validation failed: Cross-origin mutation blocked.' } },
       { status: 403 }
     );
+    return applySecurityAndCorsHeaders(errorRes, request);
   }
 
   const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME);
   const token = sessionCookie?.value || sessionCookie;
   const hasSession = isSessionValid(token);
-
-  const { pathname } = request.nextUrl;
 
   // Public paths that do NOT require authentication
   const isPublicPath = 
@@ -85,12 +150,14 @@ export function middleware(request) {
   // If path is API and not public, require session cookie
   if (pathname.startsWith('/api/')) {
     if (!isPublicPath && !hasSession) {
-      return NextResponse.json(
+      const unauthorizedRes = NextResponse.json(
         { success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required or session expired' } },
         { status: 401 }
       );
+      return applySecurityAndCorsHeaders(unauthorizedRes, request);
     }
-    return NextResponse.next();
+    const nextRes = NextResponse.next();
+    return applySecurityAndCorsHeaders(nextRes, request);
   }
 
   // If visiting a protected page without valid session, redirect to /login with redirect query param
@@ -99,7 +166,8 @@ export function middleware(request) {
     if (pathname !== '/') {
       loginUrl.searchParams.set('redirect', pathname);
     }
-    return NextResponse.redirect(loginUrl);
+    const redirectRes = NextResponse.redirect(loginUrl);
+    return applySecurityAndCorsHeaders(redirectRes, request);
   }
 
   // If authenticated user visits /login, redirect to dashboard / or redirect destination
@@ -107,10 +175,12 @@ export function middleware(request) {
     const redirectParam = request.nextUrl.searchParams.get('redirect');
     const destination = redirectParam && redirectParam.startsWith('/') ? redirectParam : '/';
     const dashboardUrl = new URL(destination, request.url);
-    return NextResponse.redirect(dashboardUrl);
+    const redirectRes = NextResponse.redirect(dashboardUrl);
+    return applySecurityAndCorsHeaders(redirectRes, request);
   }
 
-  return NextResponse.next();
+  const nextRes = NextResponse.next();
+  return applySecurityAndCorsHeaders(nextRes, request);
 }
 
 export const config = {

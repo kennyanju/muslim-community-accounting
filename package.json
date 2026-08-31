@@ -14,7 +14,7 @@
     "check-budget": "node scripts/check_budgets.js"
   },
   "dependencies": {
-    "next": "16.2.11",
+    "next": "^16.3.3",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
@@ -22,7 +22,7 @@
     "@next/bundle-analyzer": "^16.3.3",
     "@opennextjs/cloudflare": "^1.20.2",
     "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "eslint-config-next": "^16.3.3",
     "wrangler": "^4.125.0"
   }
 }
