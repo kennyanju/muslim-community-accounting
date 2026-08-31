@@ -2,6 +2,7 @@ import { readDB } from '@/lib/db';
 import { getAuthenticatedUser, requireRole } from '@/lib/auth';
 import { apiError } from '@/lib/response';
 import { validateDateRange } from '@/lib/validation';
+import { sanitizeCsvCell } from '@/lib/sanitize';
 import { guardRateLimit } from '@/lib/rateLimit';
 import { config } from '@/lib/config';
 
@@ -82,12 +83,23 @@ export async function GET(request) {
         lastName = parts.slice(2).join(' ') || '';
       }
 
-      const house = donor.address_line_1.split(',')[0].trim().replace(/"/g, '""');
-      const pcode = donor.postcode.trim().toUpperCase().replace(/"/g, '""');
+      const house = donor.address_line_1.split(',')[0].trim();
+      const pcode = donor.postcode.trim().toUpperCase();
       const amount = parseFloat(tx.total_amount).toFixed(2);
       const taxClaimed = (parseFloat(tx.total_amount) * 0.25).toFixed(2);
       
-      csvContent += `"${title}","${firstName.replace(/"/g, '""')}","${lastName.replace(/"/g, '""')}","${house}","${pcode}",${tx.transaction_date},${amount},${taxClaimed}\n`;
+      const row = [
+        sanitizeCsvCell(title),
+        sanitizeCsvCell(firstName),
+        sanitizeCsvCell(lastName),
+        sanitizeCsvCell(house),
+        sanitizeCsvCell(pcode),
+        sanitizeCsvCell(tx.transaction_date),
+        amount,
+        taxClaimed
+      ];
+
+      csvContent += row.join(',') + '\n';
     }
   });
 
@@ -97,7 +109,7 @@ export async function GET(request) {
   return new Response(csvContent, {
     headers: {
       ...rateGuard.headers,
-      'Content-Type': 'text/csv',
+      'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename=HMRC_GiftAid_Schedule_${shortName}_${year}.csv`
     }
   });

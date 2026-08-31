@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { hashPassword, getSafeUser } from './auth.js';
 import { validateBackupPayload } from './validation.js';
+import { sanitizeText } from './sanitize.js';
 import initialDBData from '../data/db.json' with { type: 'json' };
 
 const dbPath = path.join(process.cwd(), 'src/data/db.json');
@@ -159,11 +160,11 @@ export class DatabaseController {
     this.checkAdmin();
     const db = readDB();
     
-    // Sanitize incoming fields
+    // Sanitize incoming fields against XSS
     const sanitized = {};
     ALLOWED_ORG_FIELDS.forEach(field => {
       if (newOrgData[field] !== undefined && typeof newOrgData[field] === 'string') {
-        sanitized[field] = newOrgData[field].trim();
+        sanitized[field] = sanitizeText(newOrgData[field]);
       }
     });
 
@@ -191,18 +192,21 @@ export class DatabaseController {
     this.checkAdmin();
     if (!name || !name.trim()) throw new Error("Fund name is required.");
 
+    const sanitizedName = sanitizeText(name);
+    const sanitizedDesc = sanitizeText(description);
+
     const db = readDB();
-    const existing = db.funds.find(f => f.name.toLowerCase() === name.trim().toLowerCase());
+    const existing = db.funds.find(f => f.name.toLowerCase() === sanitizedName.toLowerCase());
     if (existing) {
-      throw new Error(`A fund named "${name}" already exists.`);
+      throw new Error(`A fund named "${sanitizedName}" already exists.`);
     }
 
-    const fundId = `fund-${name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')}-${crypto.randomUUID().substring(0, 4)}`;
+    const fundId = `fund-${sanitizedName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')}-${crypto.randomUUID().substring(0, 4)}`;
     const newFund = {
       id: fundId,
-      name: name.trim(),
+      name: sanitizedName,
       is_restricted: !!is_restricted,
-      description: description.trim(),
+      description: sanitizedDesc,
       is_archived: false,
       created_at: new Date().toISOString()
     };
@@ -237,10 +241,10 @@ export class DatabaseController {
       }
     }
 
-    if (name && name.trim()) fund.name = name.trim();
+    if (name && name.trim()) fund.name = sanitizeText(name);
     if (is_restricted !== undefined) fund.is_restricted = !!is_restricted;
     if (is_archived !== undefined) fund.is_archived = !!is_archived;
-    if (description !== undefined) fund.description = description.trim();
+    if (description !== undefined) fund.description = sanitizeText(description);
 
     this.logAudit('funds', id, 'UPDATE', db);
 
@@ -450,11 +454,11 @@ export class DatabaseController {
       donor_id: donorId || 'anonymous',
       receipt_url: receiptUrl || '',
       receipt_number: receiptNum,
-      reference_note: reference_note || 'Donation',
+      reference_note: sanitizeText(reference_note || 'Donation'),
       category: category || (type === 'INCOME' ? 'Donation' : 'Other'),
       created_by: this.userId,
       reconciled: false,
-      notes: notes || '',
+      notes: sanitizeText(notes || ''),
       giftAid: type === 'INCOME' ? !!giftAid : false
     };
 
@@ -495,7 +499,7 @@ export class DatabaseController {
     }
 
     tx.status = 'VOIDED';
-    tx.void_reason = reason.trim();
+    tx.void_reason = sanitizeText(reason);
     tx.voided_at = new Date().toISOString();
     tx.voided_by = this.userId;
 
@@ -580,13 +584,13 @@ export class DatabaseController {
     const dId = `don-${crypto.randomUUID().substring(0, 8)}`;
     const newDonor = {
       id: dId,
-      name: name.trim(),
+      name: sanitizeText(name),
       email: (email || '').trim().toLowerCase(),
       is_anonymous: false,
       gift_aid_eligible: !!giftAidEligible,
-      address_line_1: line1.trim(),
-      address_line_2: (address_line_2 || '').trim(),
-      city: donorCity.trim(),
+      address_line_1: sanitizeText(line1),
+      address_line_2: sanitizeText(address_line_2 || ''),
+      city: sanitizeText(donorCity),
       postcode: pcode.trim().toUpperCase(),
       created_at: new Date().toISOString()
     };

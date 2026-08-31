@@ -2,6 +2,7 @@ import { readDB, DatabaseController } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
 import { validateTransactionPayload, validateDateRange, sanitizePagination } from '@/lib/validation';
+import { sanitizeCsvCell } from '@/lib/sanitize';
 import { guardRateLimit } from '@/lib/rateLimit';
 import { config } from '@/lib/config';
 import { logger } from '@/lib/logger';
@@ -133,24 +134,39 @@ export async function GET(request) {
     );
   }
 
-  // Handle CSV export of full ledger
+  // Handle CSV export of full ledger with CSV Injection protection
   if (format === 'csv') {
     const org = db.organisation || {};
     let csv = `Date,Receipt No,Type,Reference / Description,Category,Donor,Fund Splits,Payment Method,Amount (${org.currency_symbol || '£'}),Status,Reconciled,Notes\n`;
     
     result.forEach(tx => {
       const fundSplits = tx.splits.map(s => `${s.fundName}: ${s.amount}`).join(' | ');
-      const desc = (tx.reference_note || tx.description || '').replace(/"/g, '""');
-      const notes = (tx.notes || '').replace(/"/g, '""');
-      const donor = (tx.donorName || 'Anonymous').replace(/"/g, '""');
-      const recNo = (tx.receipt_number || '').replace(/"/g, '""');
+      const desc = tx.reference_note || tx.description || '';
+      const notes = tx.notes || '';
+      const donor = tx.donorName || 'Anonymous';
+      const recNo = tx.receipt_number || '';
       
-      csv += `"${tx.transaction_date}","${recNo}","${tx.type}","${desc}","${tx.category || ''}","${donor}","${fundSplits}","${tx.method}",${parseFloat(tx.total_amount).toFixed(2)},"${tx.status}","${tx.reconciled ? 'YES' : 'NO'}","${notes}"\n`;
+      const row = [
+        sanitizeCsvCell(tx.transaction_date),
+        sanitizeCsvCell(recNo),
+        sanitizeCsvCell(tx.type),
+        sanitizeCsvCell(desc),
+        sanitizeCsvCell(tx.category || ''),
+        sanitizeCsvCell(donor),
+        sanitizeCsvCell(fundSplits),
+        sanitizeCsvCell(tx.method),
+        parseFloat(tx.total_amount).toFixed(2),
+        sanitizeCsvCell(tx.status),
+        sanitizeCsvCell(tx.reconciled ? 'YES' : 'NO'),
+        sanitizeCsvCell(notes)
+      ];
+      
+      csv += row.join(',') + '\n';
     });
 
     return new Response(csv, {
       headers: {
-        'Content-Type': 'text/csv',
+        'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename=Ledger_Export_${new Date().toISOString().substring(0, 10)}.csv`
       }
     });

@@ -533,6 +533,34 @@ try {
   assert(false, `Optimistic rollback test failed: ${err.message}`);
 }
 
+// Test case 25: XSS and CSV Formula Injection Sanitization
+try {
+  const { sanitizeText, sanitizeCsvCell } = await import('./sanitize.js');
+
+  const rawXSS = "<script>alert('pwned')</script><iframe src='evil.com'></iframe><img src=x onerror=alert(1)>Hello World";
+  const cleanedText = sanitizeText(rawXSS);
+  assert(
+    !cleanedText.includes('<script>') && !cleanedText.includes('onerror=') && !cleanedText.includes('<iframe>'),
+    "sanitizeText effectively neutralized XSS script tags, iframe embeds, and inline event handlers"
+  );
+
+  const formulaPayload = "=cmd|'/C calc'!A0";
+  const sanitizedCell = sanitizeCsvCell(formulaPayload);
+  assert(
+    sanitizedCell.startsWith("\"'") && sanitizedCell.includes("=cmd"),
+    "sanitizeCsvCell safely neutralized spreadsheet DDE formula execution by prepending a single quote"
+  );
+
+  const plusPayload = "+SUM(A1:B10)";
+  const sanitizedPlus = sanitizeCsvCell(plusPayload);
+  assert(
+    sanitizedPlus.startsWith("\"'"),
+    "sanitizeCsvCell safely neutralized '+' formula trigger"
+  );
+} catch (err) {
+  assert(false, `Sanitization tests failed: ${err.message}`);
+}
+
 
 console.log("--------------------------------------------------");
 console.log(`TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);

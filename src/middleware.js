@@ -26,7 +26,45 @@ function isSessionValid(token) {
   }
 }
 
+/**
+ * Validates Origin/Referer against Host header for state-mutating requests (CSRF Defense)
+ */
+function isValidOrigin(request) {
+  const method = request.method?.toUpperCase();
+  if (['GET', 'HEAD', 'OPTIONS'].includes(method)) return true;
+
+  const origin = request.headers.get('origin');
+  const host = request.headers.get('host');
+  
+  if (!origin) {
+    // If no origin header is provided, check referer header if present
+    const referer = request.headers.get('referer');
+    if (!referer) return true; // Native direct fetch
+    try {
+      const refUrl = new URL(referer);
+      return refUrl.host === host;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  try {
+    const originUrl = new URL(origin);
+    return originUrl.host === host;
+  } catch (e) {
+    return false;
+  }
+}
+
 export function middleware(request) {
+  // 1. CSRF Protection for state mutations
+  if (!isValidOrigin(request)) {
+    return NextResponse.json(
+      { success: false, error: { code: 'FORBIDDEN', message: 'CSRF validation failed: Cross-origin mutation blocked.' } },
+      { status: 403 }
+    );
+  }
+
   const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME);
   const token = sessionCookie?.value || sessionCookie;
   const hasSession = isSessionValid(token);
