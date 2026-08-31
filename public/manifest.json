@@ -2,17 +2,32 @@
   "name": "Masjid Accounting — Islamic Financial Ledger",
   "short_name": "Masjid Finance",
   "description": "Multi-fund Islamic accounting ledger, Zakat segregation, and UK Charity Commission compliance system.",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0f172a",
   "theme_color": "#10b981",
   "orientation": "portrait-primary",
+  "categories": ["finance", "productivity", "utilities", "business"],
   "icons": [
     {
       "src": "/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon-16x16.png",
+      "sizes": "16x16",
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "/icon-192.png",
@@ -30,6 +45,29 @@
       "src": "/favicon.ico",
       "sizes": "64x64 32x32 24x24 16x16",
       "type": "image/x-icon"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Record Transaction",
+      "short_name": "New Tx",
+      "description": "Record income, expense or donation entry in ledger",
+      "url": "/?action=new-tx",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Friday Jummah Cash",
+      "short_name": "Jummah",
+      "description": "Log verified cash counts with dual witness signatures",
+      "url": "/?action=jummah",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Gift Aid Claim",
+      "short_name": "Gift Aid",
+      "description": "Export HMRC 25% Gift Aid schedule",
+      "url": "/?tab=reports",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

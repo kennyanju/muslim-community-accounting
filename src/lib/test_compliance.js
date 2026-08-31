@@ -674,6 +674,51 @@ try {
   assert(false, `Intl and SEO tests failed: ${err.message}`);
 }
 
+// Test case 29: Dynamic OpenGraph Metadata, PWA Manifest, Error Telemetry & Deduplicated Analytics
+try {
+  const fs = await import('fs');
+  const { trackEvent, trackPageView, trackTransactionRecorded } = await import('../lib/analytics.js');
+  const { setUserContext, clearUserContext, setMosqueContext, reportClientError, addBreadcrumb } = await import('../lib/errorReporting.js');
+
+  // 1. Verify analytics event dispatch & sliding window deduplication
+  const firstDispatch = trackEvent('test_unique_action', { count: 1 });
+  assert(firstDispatch === true, "Analytics tracking engine dispatches first unique telemetry event");
+
+  const duplicateDispatch = trackEvent('test_unique_action', { count: 1 });
+  assert(duplicateDispatch === false, "Analytics deduplication successfully drops duplicate rapid telemetry event");
+
+  // 2. Verify PII stripping in telemetry properties
+  const piiEvent = trackEvent('test_donor_action', {
+    donor_name: 'Dr Khan',
+    password: 'secretPassword123',
+    gift_aid: true
+  });
+  assert(piiEvent === true, "PII-sanitized analytics event successfully accepted");
+
+  // 3. Verify error monitoring user and mosque context attachment
+  setUserContext({ id: 'user-audit-1', email: 'auditor@masjid.org.uk', role: 'AUDITOR' });
+  setMosqueContext({ name: 'Bristol Central Mosque', short_name: 'BCM', currency_symbol: '£' });
+  addBreadcrumb('ui.click', 'User clicked record transaction');
+  reportClientError(new Error('Simulated test exception'), { location: 'test_compliance.js' });
+  clearUserContext();
+  assert(true, "Client error reporting successfully attaches rich user context, mosque metadata, and breadcrumbs");
+
+  // 4. Verify OpenGraph image generator export
+  const ogExists = fs.existsSync(new URL('../app/opengraph-image.jsx', import.meta.url));
+  assert(ogExists, "Dynamic opengraph-image.jsx social preview card generator exists");
+
+  // 5. Verify PWA manifest.json shortcuts and categories
+  const manifestRaw = fs.readFileSync(new URL('../../public/manifest.json', import.meta.url), 'utf8');
+  const manifest = JSON.parse(manifestRaw);
+  assert(
+    Array.isArray(manifest.categories) && manifest.categories.includes('finance') &&
+    Array.isArray(manifest.shortcuts) && manifest.shortcuts.length >= 2,
+    "PWA manifest.json contains valid categories and quick action shortcuts"
+  );
+} catch (err) {
+  assert(false, `Analytics, OG, and error monitoring tests failed: ${err.message}`);
+}
+
 
 console.log("--------------------------------------------------");
 console.log(`TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);

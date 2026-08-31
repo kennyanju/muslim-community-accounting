@@ -2,7 +2,8 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { reportClientError, addBreadcrumb } from '@/lib/errorReporting';
+import { reportClientError, addBreadcrumb, setUserContext, clearUserContext, setMosqueContext } from '@/lib/errorReporting';
+import { trackPageView, trackThemeChanged } from '@/lib/analytics';
 import { fetchAPI as baseFetchAPI, NetworkError } from '@/utils/api';
 
 const AppContext = createContext(null);
@@ -85,7 +86,13 @@ export function AppProvider({ children }) {
       localStorage.setItem('masjid-theme', newTheme);
     }
     applyTheme(newTheme);
+    trackThemeChanged(newTheme);
   }, [applyTheme]);
+
+  // Track tab page views with deduplication
+  useEffect(() => {
+    trackPageView(activeTab, `Tab: ${activeTab}`);
+  }, [activeTab]);
 
   // Listen for real-time OS theme preference changes when theme is set to 'system'
   useEffect(() => {
@@ -218,8 +225,14 @@ export function AppProvider({ children }) {
         if (meRes.ok) {
           const body = await meRes.json();
           const authData = body.data || body;
-          if (authData.user) setUser(authData.user);
-          if (authData.organisation) setOrg(authData.organisation);
+          if (authData.user) {
+            setUser(authData.user);
+            setUserContext(authData.user);
+          }
+          if (authData.organisation) {
+            setOrg(authData.organisation);
+            setMosqueContext(authData.organisation);
+          }
         } else if (meRes.status === 401) {
           if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
             const redirectUrl = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
@@ -376,10 +389,12 @@ export function AppProvider({ children }) {
 
   const handleLogout = async () => {
     try {
+      clearUserContext();
       await fetch('/api/auth/logout', { method: 'POST' });
       addToast('Signed out successfully', 'info');
       router.push('/login');
     } catch (e) {
+      clearUserContext();
       router.push('/login');
     }
   };
