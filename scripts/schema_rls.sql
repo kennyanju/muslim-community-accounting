@@ -125,7 +125,34 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 
 -- ==============================================================================
--- 3. ROW LEVEL SECURITY (RLS) POLICIES
+-- 3. PERFORMANCE INDEXING (Foreign Keys, Filter & Sorting Columns)
+-- ==============================================================================
+
+-- Transactions Performance Indexes
+CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions (transaction_date DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_donor ON transactions (donor_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_type_status ON transactions (type, status);
+CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions (category);
+CREATE INDEX IF NOT EXISTS idx_transactions_jummah ON transactions (is_jummah_collection) WHERE is_jummah_collection = TRUE;
+CREATE INDEX IF NOT EXISTS idx_transactions_created_by ON transactions (created_by);
+
+-- Splits Performance Indexes (Foreign Key & Aggregation)
+CREATE INDEX IF NOT EXISTS idx_splits_transaction ON transaction_splits (transaction_id);
+CREATE INDEX IF NOT EXISTS idx_splits_fund ON transaction_splits (fund_id);
+CREATE INDEX IF NOT EXISTS idx_splits_fund_active ON transaction_splits (fund_id, is_voided);
+
+-- Donors Performance Indexes
+CREATE INDEX IF NOT EXISTS idx_donors_name ON donors (name);
+CREATE INDEX IF NOT EXISTS idx_donors_email ON donors (email);
+CREATE INDEX IF NOT EXISTS idx_donors_postcode ON donors (postcode);
+CREATE INDEX IF NOT EXISTS idx_donors_giftaid ON donors (gift_aid_eligible) WHERE gift_aid_eligible = TRUE;
+
+-- Audit Logs Performance Indexes
+CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs (timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity_name, entity_id);
+
+-- ==============================================================================
+-- 4. ROW LEVEL SECURITY (RLS) POLICIES
 -- ==============================================================================
 
 -- Helper functions to extract user context from JWT/Session claims in Supabase

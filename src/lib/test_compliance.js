@@ -849,6 +849,65 @@ try {
   assert(false, `CORS, security headers, and error sanitization tests failed: ${err.message}`);
 }
 
+// Test case 33: File Upload Magic Bytes, Webhook Signatures, Payload Limits & DB Indexes
+try {
+  const fs = await import('fs');
+  const crypto = await import('crypto');
+  const { inspectMagicBytes, validateUploadBuffer, generatePresignedUploadUrl } = await import('../lib/fileUpload.js');
+  const { verifyStripeSignature, verifyHubSignature } = await import('../lib/webhooks.js');
+
+  // 1. Verify Magic Byte Inspection (PDF & PNG)
+  const fakePdf = Buffer.from('%PDF-1.7\n%Fake PDF binary header for test');
+  assert(inspectMagicBytes(fakePdf) === 'application/pdf', "Magic byte inspector accurately identifies genuine PDF binary header");
+
+  const fakePng = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D]);
+  assert(inspectMagicBytes(fakePng) === 'image/png', "Magic byte inspector accurately identifies genuine PNG binary signature");
+
+  const maliciousDisguisedScript = Buffer.from('<?php echo "malicious executable"; ?>');
+  assert(inspectMagicBytes(maliciousDisguisedScript) === null, "Magic byte inspector safely rejects disguised PHP script");
+
+  // 2. Verify Pre-signed Direct Upload ticket generation
+  const presigned = generatePresignedUploadUrl({ filename: 'receipt_march.pdf', contentType: 'application/pdf' });
+  assert(
+    presigned.uploadUrl.includes('signature=') && presigned.objectKey.startsWith('receipts/'),
+    "Pre-signed upload ticket generator produces secure direct-to-storage URLs"
+  );
+
+  // 3. Verify Stripe Cryptographic Webhook Verification
+  const webhookSecret = 'whsec_test_secret_key_12345';
+  const testPayload = JSON.stringify({ id: 'evt_123', type: 'payment_intent.succeeded' });
+  const now = Math.floor(Date.now() / 1000);
+  const signatureString = crypto.createHmac('sha256', webhookSecret).update(`${now}.${testPayload}`).digest('hex');
+  const validStripeSig = `t=${now},v1=${signatureString}`;
+
+  const verifySuccess = verifyStripeSignature(testPayload, validStripeSig, webhookSecret);
+  assert(verifySuccess.isValid === true, "Stripe webhook signature verifier cryptographically validates genuine HMAC-SHA256 signature");
+
+  const tamperedPayload = JSON.stringify({ id: 'evt_123', type: 'payment_intent.succeeded', altered: true });
+  const verifyTampered = verifyStripeSignature(tamperedPayload, validStripeSig, webhookSecret);
+  assert(verifyTampered.isValid === false, "Stripe webhook signature verifier detects and rejects tampered payload");
+
+  // 4. Verify Payload Limits in middleware
+  const middlewareContent = fs.readFileSync(new URL('../middleware.js', import.meta.url), 'utf8');
+  assert(
+    middlewareContent.includes('PAYLOAD_TOO_LARGE') &&
+    middlewareContent.includes('content-length'),
+    "Middleware enforces strict payload size limits on incoming state-mutating requests"
+  );
+
+  // 5. Verify PostgreSQL / Supabase Database Indexes
+  const rlsSql = fs.readFileSync(new URL('../../scripts/schema_rls.sql', import.meta.url), 'utf8');
+  assert(
+    rlsSql.includes('idx_transactions_date') &&
+    rlsSql.includes('idx_splits_fund_active') &&
+    rlsSql.includes('idx_donors_giftaid') &&
+    rlsSql.includes('idx_audit_logs_timestamp'),
+    "PostgreSQL / Supabase schema includes comprehensive performance indexes for foreign keys, filters, and ordering"
+  );
+} catch (err) {
+  assert(false, `Upload, webhook, and indexing tests failed: ${err.message}`);
+}
+
 
 console.log("--------------------------------------------------");
 console.log(`TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);

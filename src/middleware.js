@@ -132,6 +132,19 @@ export function middleware(request) {
     return applySecurityAndCorsHeaders(errorRes, request);
   }
 
+  // 3. Enforce Max Request Payload Size (1MB default, 10MB for database backups)
+  if (['POST', 'PUT', 'PATCH'].includes(method)) {
+    const contentLength = parseInt(request.headers.get('content-length') || '0', 10);
+    const maxLimit = pathname.startsWith('/api/backup') ? 10 * 1024 * 1024 : 1 * 1024 * 1024;
+    if (contentLength > maxLimit) {
+      const payloadErrorRes = NextResponse.json(
+        { success: false, error: { code: 'PAYLOAD_TOO_LARGE', message: `Request payload exceeds maximum permitted size of ${maxLimit / (1024 * 1024)}MB.` } },
+        { status: 413 }
+      );
+      return applySecurityAndCorsHeaders(payloadErrorRes, request);
+    }
+  }
+
   const sessionCookie = request.cookies.get(SESSION_COOKIE_NAME);
   const token = sessionCookie?.value || sessionCookie;
   const hasSession = isSessionValid(token);
@@ -145,6 +158,7 @@ export function middleware(request) {
     pathname === '/api/auth/logout' ||
     pathname === '/api/organisation' ||
     pathname === '/api/docs' ||
+    pathname.startsWith('/api/webhooks/') ||
     pathname.startsWith('/api/audits/client-error');
 
   // If path is API and not public, require session cookie
