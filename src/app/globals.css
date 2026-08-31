@@ -117,7 +117,12 @@ body {
   height: 100vh;
 }
 
-/* Custom Scrollbars */
+/* Custom Scrollbars (Webkit & Firefox) */
+html, body, div, table, .table-wrapper, .tab-viewport, .scrollable-content {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -138,6 +143,8 @@ body {
   display: grid;
   grid-template-columns: 260px 1fr;
   height: 100vh;
+  min-height: 0;
+  min-width: 0;
 }
 
 /* Sidebar Layout */

@@ -623,6 +623,57 @@ try {
   assert(false, `Theme flash and error boundary tests failed: ${err.message}`);
 }
 
+// Test case 28: Intl Locale, Timezone, Multi-Currency Formatters & SEO Configurations
+try {
+  const { formatCurrency, formatDate, formatDateTime, getUserLocale, getUserTimeZone } = await import('../utils/formatters.js');
+  const fs = await import('fs');
+
+  // 1. Format Currency with international Islamic and standard currencies
+  const gbpVal = formatCurrency(1250.50, '£', 'en-GB');
+  assert(gbpVal.includes('1,250.50'), "Intl.NumberFormat correctly formats GBP currency");
+
+  const ngnVal = formatCurrency(50000, '₦', 'en-NG');
+  assert(ngnVal.includes('50,000.00'), "Intl.NumberFormat correctly formats NGN currency");
+
+  const sarVal = formatCurrency(750, 'SAR', 'en-US');
+  assert(sarVal.includes('750.00'), "Intl.NumberFormat correctly formats SAR currency");
+
+  // 2. Date and Time formatting with custom options and timezone detection
+  const testDate = '2026-08-31T09:30:00.000Z';
+  const formattedD = formatDate(testDate, {}, 'en-GB');
+  assert(formattedD.includes('2026'), "Intl.DateTimeFormat properly formats ISO date string");
+
+  const formattedDT = formatDateTime(testDate, 'en-GB');
+  assert(formattedDT.length > 5, "Intl.DateTimeFormat properly formats full timestamp");
+
+  // 3. Verify robots.js generator
+  const robotsModule = await import('../app/robots.js');
+  const robotsConfig = robotsModule.default();
+  assert(
+    Array.isArray(robotsConfig.rules) && robotsConfig.rules[0].disallow.includes('/api/'),
+    "robots.js config correctly disallows indexing private API routes"
+  );
+
+  // 4. Verify sitemap.js generator
+  const sitemapModule = await import('../app/sitemap.js');
+  const sitemapEntries = sitemapModule.default();
+  assert(
+    Array.isArray(sitemapEntries) && sitemapEntries.some(e => e.url.endsWith('/login')),
+    "sitemap.js generator includes public login route entry"
+  );
+
+  // 5. Verify SettingsTab form autofill attributes
+  const settingsContent = fs.readFileSync(new URL('../components/tabs/SettingsTab.jsx', import.meta.url), 'utf8');
+  assert(
+    settingsContent.includes('autoComplete="organization"') &&
+    settingsContent.includes('autoComplete="street-address"') &&
+    settingsContent.includes('autoComplete="email"'),
+    "SettingsTab inputs include standard W3C autocomplete and name attributes"
+  );
+} catch (err) {
+  assert(false, `Intl and SEO tests failed: ${err.message}`);
+}
+
 
 console.log("--------------------------------------------------");
 console.log(`TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);

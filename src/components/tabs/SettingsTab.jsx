@@ -167,7 +167,9 @@ export default function SettingsTab() {
                 <label htmlFor="org-name">Mosque / Centre Full Name *</label>
                 <input 
                   id="org-name" 
+                  name="name"
                   type="text" 
+                  autoComplete="organization"
                   value={org.name} 
                   onChange={e => {
                     setOrg({ ...org, name: e.target.value });
@@ -181,7 +183,9 @@ export default function SettingsTab() {
                 <label htmlFor="org-short-name">Short Name (Acronym)</label>
                 <input 
                   id="org-short-name" 
+                  name="short_name"
                   type="text" 
+                  autoComplete="organization-title"
                   value={org.short_name} 
                   onChange={e => setOrg({ ...org, short_name: e.target.value })} 
                   required 
@@ -194,6 +198,7 @@ export default function SettingsTab() {
                 <label htmlFor="org-tagline">Tagline / Subtitle</label>
                 <input 
                   id="org-tagline" 
+                  name="tagline"
                   type="text" 
                   value={org.tagline} 
                   onChange={e => setOrg({ ...org, tagline: e.target.value })} 
@@ -203,6 +208,7 @@ export default function SettingsTab() {
                 <label htmlFor="org-charity-no">UK Charity Commission Reg No.</label>
                 <input 
                   id="org-charity-no" 
+                  name="charity_number"
                   type="text" 
                   value={org.charity_number} 
                   onChange={e => setOrg({ ...org, charity_number: e.target.value })} 
@@ -215,7 +221,9 @@ export default function SettingsTab() {
               <label htmlFor="org-address">Registered Address</label>
               <input 
                 id="org-address" 
+                name="address"
                 type="text" 
+                autoComplete="street-address"
                 value={org.address} 
                 onChange={e => setOrg({ ...org, address: e.target.value })} 
                 required 
@@ -227,7 +235,9 @@ export default function SettingsTab() {
                 <label htmlFor="org-email">Finance Contact Email</label>
                 <input 
                   id="org-email" 
+                  name="email"
                   type="email" 
+                  autoComplete="email"
                   value={org.email} 
                   onChange={e => {
                     setOrg({ ...org, email: e.target.value });
@@ -241,7 +251,9 @@ export default function SettingsTab() {
                 <label htmlFor="org-phone">Contact Phone</label>
                 <input 
                   id="org-phone" 
-                  type="text" 
+                  name="phone"
+                  type="tel" 
+                  autoComplete="tel"
                   value={org.phone} 
                   onChange={e => setOrg({ ...org, phone: e.target.value })} 
                 />
@@ -253,6 +265,7 @@ export default function SettingsTab() {
                 <label htmlFor="org-currency">Currency Symbol *</label>
                 <input 
                   id="org-currency" 
+                  name="currency_symbol"
                   type="text" 
                   value={org.currency_symbol} 
                   onChange={e => {
@@ -267,7 +280,9 @@ export default function SettingsTab() {
                 <label htmlFor="org-country">Country / Jurisdiction</label>
                 <input 
                   id="org-country" 
+                  name="country"
                   type="text" 
+                  autoComplete="country-name"
                   value={org.country} 
                   onChange={e => setOrg({ ...org, country: e.target.value })} 
                   required 
