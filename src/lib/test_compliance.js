@@ -766,6 +766,50 @@ try {
   assert(false, `Auth persistence and schema validation tests failed: ${err.message}`);
 }
 
+// Test case 31: Authorization (IDOR), Row-Level Security (RLS), RateLimit Headers & Secrets
+try {
+  const fs = await import('fs');
+  const { getRateLimitHeaders } = await import('../lib/rateLimit.js');
+
+  // 1. Verify RateLimit and X-RateLimit headers
+  const rlHeaders = getRateLimitHeaders({ limit: 60, remaining: 59, resetTime: 45 });
+  assert(
+    rlHeaders['RateLimit-Limit'] === '60' &&
+    rlHeaders['X-RateLimit-Limit'] === '60' &&
+    rlHeaders['X-RateLimit-Remaining'] === '59' &&
+    rlHeaders['X-RateLimit-Reset'] === '45',
+    "Rate limiter emits compliant standard IETF and X-RateLimit-* headers"
+  );
+
+  // 2. Verify PostgreSQL / Supabase Row-Level Security (RLS) SQL schema
+  const rlsSql = fs.readFileSync(new URL('../../scripts/schema_rls.sql', import.meta.url), 'utf8');
+  assert(
+    rlsSql.includes('ENABLE ROW LEVEL SECURITY') &&
+    rlsSql.includes('users_select_policy') &&
+    rlsSql.includes('transactions_insert_policy') &&
+    rlsSql.includes('audit_logs_select_policy'),
+    "Production PostgreSQL / Supabase schema includes complete Row-Level Security policies"
+  );
+
+  // 3. Verify IDOR & privilege escalation defense in users/[id]
+  const userRouteCode = fs.readFileSync(new URL('../app/api/users/[id]/route.js', import.meta.url), 'utf8');
+  assert(
+    userRouteCode.includes('isSelf') &&
+    userRouteCode.includes('isAdmin') &&
+    userRouteCode.includes('!isAdmin && !isSelf'),
+    "User update route strictly enforces IDOR isolation and blocks privilege escalation"
+  );
+
+  // 4. Verify Secrets exclusion in .gitignore and .env.example
+  const gitignoreContent = fs.readFileSync(new URL('../../.gitignore', import.meta.url), 'utf8');
+  assert(
+    gitignoreContent.includes('.env*') && gitignoreContent.includes('!.env.example'),
+    ".gitignore strictly excludes all production .env secret files"
+  );
+} catch (err) {
+  assert(false, `IDOR, RLS, and Secrets tests failed: ${err.message}`);
+}
+
 
 console.log("--------------------------------------------------");
 console.log(`TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);

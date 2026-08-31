@@ -71,14 +71,21 @@ export function getClientIp(request) {
 }
 
 /**
- * Standard RateLimit response headers builder
+ * Standard & Legacy RateLimit response headers builder
  */
 export function getRateLimitHeaders(rate) {
+  const limitStr = String(rate.limit || 60);
+  const remainingStr = String(rate.remaining ?? 0);
+  const resetStr = String(rate.resetTime || 60);
+
   return {
-    'RateLimit-Limit': String(rate.limit || 60),
-    'RateLimit-Remaining': String(rate.remaining ?? 0),
-    'RateLimit-Reset': String(rate.resetTime || 60),
-    'Retry-After': String(rate.resetTime || 60)
+    'RateLimit-Limit': limitStr,
+    'RateLimit-Remaining': remainingStr,
+    'RateLimit-Reset': resetStr,
+    'X-RateLimit-Limit': limitStr,
+    'X-RateLimit-Remaining': remainingStr,
+    'X-RateLimit-Reset': resetStr,
+    'Retry-After': resetStr
   };
 }
 
