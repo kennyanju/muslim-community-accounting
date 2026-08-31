@@ -273,3 +273,32 @@ export function validateBackupPayload(backupData) {
 
   return true;
 }
+
+/**
+ * Validate organisation profile payload
+ */
+export function validateOrganisationPayload(data) {
+  if (!data || typeof data !== 'object') {
+    throw new ValidationError('Invalid organisation profile object.');
+  }
+
+  if (data.name !== undefined) {
+    if (typeof data.name !== 'string' || !data.name.trim()) {
+      throw new ValidationError('Mosque organisation name is required.', 'name');
+    }
+  }
+
+  if (data.email !== undefined && data.email.trim()) {
+    if (!EMAIL_REGEX.test(data.email.trim())) {
+      throw new ValidationError('Invalid finance contact email format.', 'email');
+    }
+  }
+
+  if (data.currency_symbol !== undefined) {
+    if (typeof data.currency_symbol !== 'string' || !data.currency_symbol.trim()) {
+      throw new ValidationError('Currency symbol is required.', 'currency_symbol');
+    }
+  }
+
+  return true;
+}

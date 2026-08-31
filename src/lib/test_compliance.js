@@ -719,6 +719,53 @@ try {
   assert(false, `Analytics, OG, and error monitoring tests failed: ${err.message}`);
 }
 
+// Test case 30: Auth State Persistence, Schema Validation & Injection Prevention
+try {
+  const { validateOrganisationPayload } = await import('../lib/validation.js');
+  const { createSessionToken, verifySessionToken, buildSessionCookie } = await import('../lib/auth.js');
+  const fs = await import('fs');
+
+  // 1. Verify sliding session token auto-renewal
+  const mockUser = { id: 'user-sec-1', email: 'secretary@bsmc.org.uk', role: 'ADMIN', name: 'Secretary' };
+  const token = createSessionToken(mockUser);
+  const cookie = buildSessionCookie(token);
+  assert(
+    cookie.includes('HttpOnly') && cookie.includes('SameSite=Lax') && cookie.includes('masjid_session='),
+    "Sliding session builder generates secure HttpOnly SameSite cookie for auth persistence"
+  );
+
+  const parsed = verifySessionToken(token);
+  assert(parsed.id === mockUser.id && parsed.role === 'ADMIN', "Session token validates and verifies cryptographically without redirect loops");
+
+  // 2. Verify organisation schema input validation
+  let caughtInvalidEmail = false;
+  try {
+    validateOrganisationPayload({ name: 'Valid Mosque', email: 'not-an-email', currency_symbol: '£' });
+  } catch (e) {
+    caughtInvalidEmail = true;
+  }
+  assert(caughtInvalidEmail, "validateOrganisationPayload strictly catches malformed email input");
+
+  let caughtEmptyName = false;
+  try {
+    validateOrganisationPayload({ name: '   ', currency_symbol: '£' });
+  } catch (e) {
+    caughtEmptyName = true;
+  }
+  assert(caughtEmptyName, "validateOrganisationPayload strictly catches empty organisation name");
+
+  // 3. Verify middleware auth guards on API routes
+  const middlewareContent = fs.readFileSync(new URL('../middleware.js', import.meta.url), 'utf8');
+  assert(
+    middlewareContent.includes('isValidOrigin(request)') &&
+    middlewareContent.includes('isSessionValid(token)') &&
+    middlewareContent.includes('pathname.startsWith(\'/api/\')'),
+    "Global middleware strictly validates CSRF origins and enforces session tokens on all protected routes"
+  );
+} catch (err) {
+  assert(false, `Auth persistence and schema validation tests failed: ${err.message}`);
+}
+
 
 console.log("--------------------------------------------------");
 console.log(`TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);

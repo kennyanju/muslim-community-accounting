@@ -98,21 +98,273 @@
       "address_line_2": "",
       "city": "",
       "postcode": ""
+    },
+    {
+      "id": "don-c668fc96",
+      "name": "Brother Ahmad",
+      "email": "ahmad@example.com",
+      "is_anonymous": false,
+      "gift_aid_eligible": true,
+      "address_line_1": "12 Green Lane",
+      "address_line_2": "",
+      "city": "",
+      "postcode": "BS5 9TT",
+      "created_at": "2026-08-31T08:44:40.041Z"
     }
   ],
-  "transactions": [],
-  "transaction_splits": [],
+  "transactions": [
+    {
+      "id": "tx-e3c3382d",
+      "type": "INCOME",
+      "status": "BANKED",
+      "method": "CASH",
+      "total_amount": 50,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "receipt_number": "BSMC-2026-0134",
+      "reference_note": "Locked test cash",
+      "category": "Donation",
+      "created_by": "user-sec-1",
+      "reconciled": true,
+      "notes": "",
+      "giftAid": false
+    },
+    {
+      "id": "tx-4ea22128",
+      "type": "INCOME",
+      "status": "BANKED",
+      "method": "CASH",
+      "total_amount": 120,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "receipt_number": "BSMC-2026-0133",
+      "reference_note": "Friday Collection",
+      "category": "Donation",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "",
+      "giftAid": false
+    },
+    {
+      "id": "tx-9cb9090c",
+      "type": "INCOME",
+      "status": "BANKED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 100,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "receipt_number": "BSMC-2026-0132",
+      "reference_note": "Lillah Operations",
+      "category": "Donation",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "",
+      "giftAid": false
+    },
+    {
+      "id": "tx-65d8e855",
+      "type": "INCOME",
+      "status": "VOIDED",
+      "method": "CASH",
+      "total_amount": 75,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "receipt_number": "BSMC-2026-0131",
+      "reference_note": "Special Jummah Collection for Orphanage",
+      "category": "Donation",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "",
+      "giftAid": false,
+      "void_reason": "Donor deposited to wrong account",
+      "voided_at": "2026-08-31T08:44:40.038Z",
+      "voided_by": "user-sec-1"
+    },
+    {
+      "id": "tx-b8af59ce",
+      "type": "INCOME",
+      "status": "BANKED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 45,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "receipt_number": "BSMC-2026-0130",
+      "reference_note": "Interest",
+      "category": "Interest",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "",
+      "giftAid": false
+    },
+    {
+      "id": "tx-42bcabf3",
+      "type": "EXPENSE",
+      "status": "BANKED",
+      "method": "BANK_TRANSFER",
+      "total_amount": 200,
+      "transaction_date": "2026-06-12",
+      "donor_id": "anonymous",
+      "receipt_url": "",
+      "receipt_number": "",
+      "reference_note": "Emergency Food Support Payout",
+      "category": "Charitable Payout",
+      "created_by": "user-sec-1",
+      "reconciled": false,
+      "notes": "Asnaf (Faqir) verified voucher disbursement #402",
+      "giftAid": false
+    }
+  ],
+  "transaction_splits": [
+    {
+      "id": "split-6795f73f",
+      "transaction_id": "tx-42bcabf3",
+      "fund_id": "fund-zakat",
+      "amount": 200,
+      "is_voided": false
+    },
+    {
+      "id": "split-cf3cb1d2",
+      "transaction_id": "tx-b8af59ce",
+      "fund_id": "fund-riba",
+      "amount": 45,
+      "is_voided": false
+    },
+    {
+      "id": "split-eb36da72",
+      "transaction_id": "tx-65d8e855",
+      "fund_id": "fund-sadaqah",
+      "amount": 75,
+      "is_voided": true,
+      "voided_at": "2026-08-31T08:44:40.038Z"
+    },
+    {
+      "id": "split-35254729",
+      "transaction_id": "tx-9cb9090c",
+      "fund_id": "fund-lillah",
+      "amount": 100,
+      "is_voided": false
+    },
+    {
+      "id": "split-fa31db96",
+      "transaction_id": "tx-4ea22128",
+      "fund_id": "fund-sadaqah",
+      "amount": 120,
+      "is_voided": false
+    },
+    {
+      "id": "split-6520f947",
+      "transaction_id": "tx-e3c3382d",
+      "fund_id": "fund-sadaqah",
+      "amount": 50,
+      "is_voided": false
+    }
+  ],
   "audit_logs": [
     {
-      "id": "log-a8683abd",
+      "id": "log-efb32a7e",
+      "table_name": "donors",
+      "record_id": "don-c668fc96",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "user_email": "secretary@bsmc.org.uk",
+      "user_name": "Financial Secretary",
+      "timestamp": "2026-08-31T08:44:40.041Z"
+    },
+    {
+      "id": "log-964b728e",
+      "table_name": "transactions",
+      "record_id": "tx-e3c3382d",
+      "action": "UPDATE",
+      "user_id": "user-sec-1",
+      "user_email": "secretary@bsmc.org.uk",
+      "user_name": "Financial Secretary",
+      "timestamp": "2026-08-31T08:44:40.040Z"
+    },
+    {
+      "id": "log-f296be66",
+      "table_name": "transactions",
+      "record_id": "tx-e3c3382d",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "user_email": "secretary@bsmc.org.uk",
+      "user_name": "Financial Secretary",
+      "timestamp": "2026-08-31T08:44:40.040Z"
+    },
+    {
+      "id": "log-39e637cb",
+      "table_name": "transactions",
+      "record_id": "tx-4ea22128",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "user_email": "secretary@bsmc.org.uk",
+      "user_name": "Financial Secretary",
+      "timestamp": "2026-08-31T08:44:40.039Z"
+    },
+    {
+      "id": "log-7db6171b",
+      "table_name": "transactions",
+      "record_id": "tx-9cb9090c",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "user_email": "secretary@bsmc.org.uk",
+      "user_name": "Financial Secretary",
+      "timestamp": "2026-08-31T08:44:40.039Z"
+    },
+    {
+      "id": "log-31a7c527",
+      "table_name": "transactions",
+      "record_id": "tx-65d8e855",
+      "action": "VOID",
+      "user_id": "user-sec-1",
+      "user_email": "secretary@bsmc.org.uk",
+      "user_name": "Financial Secretary",
+      "timestamp": "2026-08-31T08:44:40.038Z"
+    },
+    {
+      "id": "log-798d14ea",
+      "table_name": "transactions",
+      "record_id": "tx-65d8e855",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "user_email": "secretary@bsmc.org.uk",
+      "user_name": "Financial Secretary",
+      "timestamp": "2026-08-31T08:44:40.038Z"
+    },
+    {
+      "id": "log-0a7015d5",
+      "table_name": "transactions",
+      "record_id": "tx-b8af59ce",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "user_email": "secretary@bsmc.org.uk",
+      "user_name": "Financial Secretary",
+      "timestamp": "2026-08-31T08:44:40.031Z"
+    },
+    {
+      "id": "log-46115a51",
+      "table_name": "transactions",
+      "record_id": "tx-42bcabf3",
+      "action": "INSERT",
+      "user_id": "user-sec-1",
+      "user_email": "secretary@bsmc.org.uk",
+      "user_name": "Financial Secretary",
+      "timestamp": "2026-08-31T08:44:40.030Z"
+    },
+    {
+      "id": "log-3bd41ccb",
       "table_name": "database",
       "record_id": "clean_reset",
       "action": "RESET",
       "user_id": "user-sec-1",
       "user_email": "secretary@bsmc.org.uk",
       "user_name": "Financial Secretary",
-      "timestamp": "2026-08-31T08:40:52.020Z"
+      "timestamp": "2026-08-31T08:44:25.945Z"
     }
   ],
-  "receipt_counter": 120
+  "receipt_counter": 135
 }

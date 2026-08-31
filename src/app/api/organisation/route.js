@@ -1,6 +1,7 @@
 import { DatabaseController, getOrganisationFromRequest, DISPLAY_SAFE_ORG_FIELDS } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
+import { validateOrganisationPayload } from '@/lib/validation';
 import { logger } from '@/lib/logger';
 
 export async function GET(request) {
@@ -20,6 +21,8 @@ export async function PUT(request) {
 
   try {
     const body = await request.json();
+    validateOrganisationPayload(body);
+
     const controller = new DatabaseController(user.role, user.id);
     const updated = controller.updateOrganisation(body);
 
