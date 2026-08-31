@@ -160,6 +160,8 @@ export function middleware(request) {
     pathname === '/login' ||
     pathname === '/not-found' ||
     pathname === '/manifest.json' ||
+    pathname === '/healthz' ||
+    pathname === '/readyz' ||
     pathname === '/api/auth/login' ||
     pathname === '/api/auth/logout' ||
     pathname === '/api/organisation' ||

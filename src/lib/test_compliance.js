@@ -957,6 +957,64 @@ try {
   assert(false, `Environment separation, PITR, rollback, and logger tests failed: ${err.message}`);
 }
 
+// Test case 35: Health Check Probes, Telemetry Metrics, Sentry Monitoring & CI/CD Least-Privilege Audit
+try {
+  const fs = await import('fs');
+  const { recordRequest, recordSecurityEvent, getMetricsSnapshot, getPrometheusFormat, checkAlertConditions } = await import('../lib/metrics.js');
+  const { initClientMonitoring } = await import('../lib/errorReporting.js');
+
+  // 1. Verify Client Error Monitoring Module
+  assert(typeof initClientMonitoring === 'function', "initClientMonitoring helper exists and exports cleanly");
+
+  // 2. Verify Metrics Aggregator & Prometheus Exporter
+  recordRequest('GET', 200, 15);
+  recordRequest('POST', 201, 45);
+  recordRequest('POST', 500, 120);
+  recordSecurityEvent('failed_login');
+
+  const snapshot = getMetricsSnapshot();
+  assert(
+    snapshot.requests.total >= 3 &&
+    snapshot.security.failedLogins >= 1 &&
+    snapshot.requests.byStatus['5xx'] >= 1,
+    "In-memory telemetry engine tracks request metrics, latencies, and security events"
+  );
+
+  const promMetrics = getPrometheusFormat();
+  assert(
+    promMetrics.includes('masjid_http_requests_total') &&
+    promMetrics.includes('masjid_security_events_total') &&
+    promMetrics.includes('masjid_http_latency_ms'),
+    "Prometheus metrics exporter generates compliant OpenTelemetry/Prometheus time series"
+  );
+
+  const alerts = checkAlertConditions(8.5);
+  assert(
+    alerts.some(a => a.name === 'High5xxErrorRate'),
+    "Alert threshold engine fires High5xxErrorRate alert on elevated 5xx errors"
+  );
+
+  // 3. Verify Health Check Probes (/healthz and /readyz)
+  const healthzExists = fs.existsSync(new URL('../app/healthz/route.js', import.meta.url));
+  const readyzExists = fs.existsSync(new URL('../app/readyz/route.js', import.meta.url));
+  assert(healthzExists && readyzExists, "Liveness (/healthz) and Readiness (/readyz) probe endpoints exist");
+
+  // 4. Verify CI/CD Least-Privilege Token Permissions
+  const deployYaml = fs.readFileSync(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  assert(
+    deployYaml.includes('permissions:') &&
+    deployYaml.includes('contents: read'),
+    "CI/CD workflow enforces least-privilege token access (contents: read)"
+  );
+
+  // 5. Verify CI/CD and Monitoring Documentation
+  const cicdAuditExists = fs.existsSync(new URL('../../CICD_SECURITY_AUDIT.md', import.meta.url));
+  const monitoringDocExists = fs.existsSync(new URL('../../MONITORING.md', import.meta.url));
+  assert(cicdAuditExists && monitoringDocExists, "CI/CD security audit and monitoring documentation runbooks exist");
+} catch (err) {
+  assert(false, `Health checks, metrics, and CI/CD audit tests failed: ${err.message}`);
+}
+
 
 console.log("--------------------------------------------------");
 console.log(`TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);

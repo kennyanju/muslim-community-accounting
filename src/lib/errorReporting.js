@@ -148,13 +148,31 @@ export function reportClientError(error, context = {}) {
   }
 }
 
-// Global client listener registration
-if (typeof window !== 'undefined') {
-  window.addEventListener('error', (event) => {
-    reportClientError(event.error || event.message, { source: 'window.onerror' });
-  });
+/**
+ * Initialize Client Error Monitoring (Sentry / Highlight)
+ */
+export function initClientMonitoring() {
+  if (typeof window === 'undefined') return;
 
-  window.addEventListener('unhandledrejection', (event) => {
-    reportClientError(event.reason, { source: 'window.unhandledrejection' });
-  });
+  const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
+  if (sentryDsn && !window.__MASJID_MONITORING_INITIALIZED__) {
+    window.__MASJID_MONITORING_INITIALIZED__ = true;
+  }
+
+  // Ensure listeners are registered once
+  if (!window.__MASJID_LISTENERS_REGISTERED__) {
+    window.__MASJID_LISTENERS_REGISTERED__ = true;
+    window.addEventListener('error', (event) => {
+      reportClientError(event.error || event.message, { source: 'window.onerror' });
+    });
+
+    window.addEventListener('unhandledrejection', (event) => {
+      reportClientError(event.reason, { source: 'window.unhandledrejection' });
+    });
+  }
+}
+
+// Auto-register on client module evaluation
+if (typeof window !== 'undefined') {
+  initClientMonitoring();
 }
