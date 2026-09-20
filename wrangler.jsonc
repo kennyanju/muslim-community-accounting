@@ -14,7 +14,7 @@
     {
       "binding": "DB",
       "database_name": "masjid-db",
-      "database_id": "masjid-db-production"
+      "database_id": "f48aa1e9-1238-42a7-bdb2-8613fdbfcdc4"
     }
   ],
   "env": {
@@ -28,7 +28,7 @@
         {
           "binding": "DB",
           "database_name": "masjid-db-staging",
-          "database_id": "masjid-db-staging"
+          "database_id": "84e4d16d-4a31-4338-94e5-02e79bdb80af"
         }
       ]
     },
@@ -42,7 +42,7 @@
         {
           "binding": "DB",
           "database_name": "masjid-db",
-          "database_id": "masjid-db-production"
+          "database_id": "f48aa1e9-1238-42a7-bdb2-8613fdbfcdc4"
         }
       ]
     }
