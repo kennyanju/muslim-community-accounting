@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getD1Database } from './db-client.js';
+import { splitDonorName } from './validation.js';
 
 export async function migrateJsonToD1(jsonPath, targetD1) {
   const resolvedPath = jsonPath || path.join(process.cwd(), 'src/data/db.json');
@@ -19,8 +20,10 @@ export async function migrateJsonToD1(jsonPath, targetD1) {
     const org = data.organisation;
     await db.prepare(`
       INSERT INTO organisations (
-        id, name, short_name, tagline, charity_number, address, email, phone, currency_symbol, country, receipt_counter
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, name, short_name, tagline, charity_number, address, email, phone,
+        currency_symbol, country, receipt_counter, fiscal_year_start,
+        zakat_surplus_alert_pence, zakat_reserve_min_pence, large_donation_threshold_pence
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         short_name = excluded.short_name,
@@ -32,6 +35,10 @@ export async function migrateJsonToD1(jsonPath, targetD1) {
         currency_symbol = excluded.currency_symbol,
         country = excluded.country,
         receipt_counter = excluded.receipt_counter,
+        fiscal_year_start = excluded.fiscal_year_start,
+        zakat_surplus_alert_pence = excluded.zakat_surplus_alert_pence,
+        zakat_reserve_min_pence = excluded.zakat_reserve_min_pence,
+        large_donation_threshold_pence = excluded.large_donation_threshold_pence,
         updated_at = datetime('now')
     `).bind(
       'main',
@@ -44,7 +51,11 @@ export async function migrateJsonToD1(jsonPath, targetD1) {
       org.phone || '0117 000 0000',
       org.currency_symbol || '£',
       org.country || 'United Kingdom',
-      data.receipt_counter || 1
+      data.receipt_counter || 1,
+      org.fiscal_year_start || '04-06',
+      org.zakat_surplus_alert_pence || 500000,
+      org.zakat_reserve_min_pence || 20000,
+      org.large_donation_threshold_pence || 50000
     ).run();
     console.log('  ✅ Migrated organisation profile');
   }
@@ -96,16 +107,20 @@ export async function migrateJsonToD1(jsonPath, targetD1) {
     console.log(`  ✅ Migrated ${data.funds.length} funds`);
   }
 
-  // 4. Donors
+  // 4. Donors (Structured Names - Item #16)
   if (Array.isArray(data.donors)) {
     for (const d of data.donors) {
+      const { title, firstName, lastName } = splitDonorName(d.name || '');
       await db.prepare(`
         INSERT INTO donors (
-          id, name, email, phone, is_anonymous, gift_aid_eligible,
+          id, name, title, first_name, last_name, email, phone, is_anonymous, gift_aid_eligible,
           gift_aid_declaration_date, address_line_1, address_line_2, city, postcode, notes, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
+          title = excluded.title,
+          first_name = excluded.first_name,
+          last_name = excluded.last_name,
           email = excluded.email,
           phone = excluded.phone,
           gift_aid_eligible = excluded.gift_aid_eligible,
@@ -116,6 +131,9 @@ export async function migrateJsonToD1(jsonPath, targetD1) {
       `).bind(
         d.id,
         d.name,
+        d.title || title,
+        d.first_name || firstName,
+        d.last_name || lastName,
         d.email || '',
         d.phone || '',
         d.is_anonymous ? 1 : 0,
@@ -132,27 +150,33 @@ export async function migrateJsonToD1(jsonPath, targetD1) {
     console.log(`  ✅ Migrated ${data.donors.length} donors`);
   }
 
-  // 5. Transactions
+  // 5. Transactions (Integer Pence Precision - Item #22, Jummah tracking - Item #12)
   if (Array.isArray(data.transactions)) {
     for (const t of data.transactions) {
+      const totalAmountPence = Math.round(parseFloat(t.total_amount || 0) * 100);
+      const isJummah = (t.reference_note?.toLowerCase().includes('jummah') || t.category?.toLowerCase().includes('jummah')) ? 1 : 0;
+
       await db.prepare(`
         INSERT INTO transactions (
           id, type, status, method, total_amount, transaction_date, donor_id,
           receipt_url, receipt_number, reference_note, category, gift_aid,
-          notes, reconciled, void_reason, voided_at, voided_by, created_by, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          notes, reconciled, is_jummah, void_reason, voided_at, voided_by, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
         ON CONFLICT(id) DO UPDATE SET
           status = excluded.status,
+          total_amount = excluded.total_amount,
           reconciled = excluded.reconciled,
+          is_jummah = excluded.is_jummah,
           void_reason = excluded.void_reason,
           voided_at = excluded.voided_at,
-          voided_by = excluded.voided_by
+          voided_by = excluded.voided_by,
+          updated_at = datetime('now')
       `).bind(
         t.id,
         t.type,
         t.status || 'PENDING',
         t.method || 'CASH',
-        parseFloat(t.total_amount || 0),
+        totalAmountPence,
         t.transaction_date || t.date || new Date().toISOString(),
         t.donor_id || 'anonymous',
         t.receipt_url || '',
@@ -162,6 +186,7 @@ export async function migrateJsonToD1(jsonPath, targetD1) {
         t.giftAid || t.gift_aid ? 1 : 0,
         t.notes || '',
         t.reconciled ? 1 : 0,
+        isJummah,
         t.void_reason || null,
         t.voided_at || null,
         t.voided_by || null,
@@ -172,9 +197,11 @@ export async function migrateJsonToD1(jsonPath, targetD1) {
     console.log(`  ✅ Migrated ${data.transactions.length} transactions`);
   }
 
-  // 6. Transaction Splits
+  // 6. Transaction Splits (Integer Pence Precision - Item #22)
   if (Array.isArray(data.transaction_splits)) {
     for (const s of data.transaction_splits) {
+      const splitAmountPence = Math.round(parseFloat(s.amount || 0) * 100);
+
       await db.prepare(`
         INSERT INTO transaction_splits (
           id, transaction_id, fund_id, amount, is_voided, voided_at, created_at
@@ -187,7 +214,7 @@ export async function migrateJsonToD1(jsonPath, targetD1) {
         s.id,
         s.transaction_id,
         s.fund_id,
-        parseFloat(s.amount || 0),
+        splitAmountPence,
         s.is_voided ? 1 : 0,
         s.voided_at || null,
         s.created_at || new Date().toISOString()
@@ -196,7 +223,65 @@ export async function migrateJsonToD1(jsonPath, targetD1) {
     console.log(`  ✅ Migrated ${data.transaction_splits.length} transaction splits`);
   }
 
-  // 7. Audit Logs
+  // 7. Budgets (Integer Pence Precision - Item #22)
+  if (Array.isArray(data.budgets)) {
+    for (const b of data.budgets) {
+      const targetPence = Math.round(parseFloat(b.target_amount || 0) * 100);
+      const maxSpendPence = b.max_spend_limit ? Math.round(parseFloat(b.max_spend_limit) * 100) : null;
+      await db.prepare(`
+        INSERT INTO budgets (id, fund_id, fiscal_year, target_amount, max_spend_limit, notes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(fund_id, fiscal_year) DO UPDATE SET
+          target_amount = excluded.target_amount,
+          max_spend_limit = excluded.max_spend_limit,
+          notes = excluded.notes
+      `).bind(
+        b.id || `bud-${b.fund_id}-${b.fiscal_year}`,
+        b.fund_id,
+        b.fiscal_year,
+        targetPence,
+        maxSpendPence,
+        b.notes || ''
+      ).run();
+    }
+    console.log(`  ✅ Migrated ${data.budgets.length} budgets`);
+  }
+
+  // 8. Asnaf Records (Integer Pence Precision - Item #22)
+  if (Array.isArray(data.asnaf_records)) {
+    let migratedCount = 0;
+    for (const a of data.asnaf_records) {
+      // Ensure source transaction exists to satisfy foreign key constraint
+      const txExists = await db.prepare('SELECT id FROM transactions WHERE id = ?').bind(a.transaction_id).first();
+      if (!txExists) {
+        continue;
+      }
+      const asnafAmountPence = Math.round(parseFloat(a.amount || 0) * 100);
+      await db.prepare(`
+        INSERT INTO asnaf_records (
+          id, transaction_id, beneficiary_name, asnaf_category, amount, distribution_date,
+          witness_name, verification_notes, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(id) DO UPDATE SET
+          amount = excluded.amount,
+          asnaf_category = excluded.asnaf_category
+      `).bind(
+        a.id,
+        a.transaction_id,
+        a.beneficiary_name,
+        a.asnaf_category,
+        asnafAmountPence,
+        a.distribution_date,
+        a.witness_name || '',
+        a.verification_notes || ''
+      ).run();
+      migratedCount++;
+    }
+    console.log(`  ✅ Migrated ${migratedCount} asnaf records`);
+  }
+
+
+  // 9. Audit Logs
   if (Array.isArray(data.audit_logs)) {
     for (const a of data.audit_logs) {
       await db.prepare(`

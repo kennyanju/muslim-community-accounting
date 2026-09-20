@@ -1,4 +1,4 @@
-import { DatabaseController } from '@/lib/db';
+import { D1Controller } from '@/lib/d1-controller';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
 import { validateUserPayload } from '@/lib/validation';
@@ -7,7 +7,7 @@ import { config } from '@/lib/config';
 import { logger } from '@/lib/logger';
 
 export async function GET(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
@@ -16,13 +16,13 @@ export async function GET(request) {
     return apiError('Forbidden: Admins only', 403, { code: 'FORBIDDEN' });
   }
 
-  const controller = new DatabaseController(user.role, user.id);
-  const users = controller.getUsers();
+  const controller = new D1Controller(user.role, user.id, user.name, user.email);
+  const users = await controller.getUsers();
   return apiSuccess(users);
 }
 
 export async function POST(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
@@ -32,7 +32,7 @@ export async function POST(request) {
   }
 
   // Rate limit user creation
-  const rateGuard = guardRateLimit(request, 'create_user', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
+  const rateGuard = await guardRateLimit(request, 'create_user', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
   if (!rateGuard.isAllowed) {
     return rateGuard.errorResponse;
   }
@@ -42,10 +42,10 @@ export async function POST(request) {
     validateUserPayload(body, false);
 
     const { email, password, role, name } = body;
-    const controller = new DatabaseController(user.role, user.id);
-    const newUser = controller.createUser({ email, password, role, name });
+    const controller = new D1Controller(user.role, user.id, user.name, user.email);
+    const newUser = await controller.createUser({ email, password, role, name });
 
-    logger.info('New user account created', { newUserId: newUser.id, role: newUser.role, createdBy: user.id });
+    logger.info('New user account created in D1', { newUserId: newUser.id, role: newUser.role, createdBy: user.id });
     return apiSuccess(newUser, { status: 201, message: 'User created successfully', headers: rateGuard.headers });
   } catch (err) {
     logger.warn('Failed to create user', { error: err.message, userId: user.id });

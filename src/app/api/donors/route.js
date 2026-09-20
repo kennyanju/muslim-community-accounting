@@ -1,4 +1,4 @@
-import { readDB, DatabaseController } from '@/lib/db';
+import { D1Controller } from '@/lib/d1-controller';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
 import { validateDonorPayload, sanitizePagination } from '@/lib/validation';
@@ -7,7 +7,7 @@ import { config } from '@/lib/config';
 import { logger } from '@/lib/logger';
 
 export async function GET(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized: Authentication required to view donor records.', 401, { code: 'UNAUTHORIZED' });
   }
@@ -16,12 +16,14 @@ export async function GET(request) {
   const search = searchParams.get('search')?.toLowerCase().trim() || '';
   const giftAidOnly = searchParams.get('giftAidOnly') === 'true';
 
-  const db = readDB();
-  let result = [...(db.donors || [])];
+  const controller = new D1Controller(user.role, user.id, user.name, user.email);
+  let result = await controller.getDonors();
 
   if (search) {
-    result = result.filter(d => 
+    result = result.filter(d =>
       d.name?.toLowerCase().includes(search) ||
+      d.first_name?.toLowerCase().includes(search) ||
+      d.last_name?.toLowerCase().includes(search) ||
       d.email?.toLowerCase().includes(search) ||
       d.postcode?.toLowerCase().includes(search)
     );
@@ -45,7 +47,7 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
@@ -55,29 +57,50 @@ export async function POST(request) {
   }
 
   // Rate limit donor creation
-  const rateGuard = guardRateLimit(request, 'create_donor', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
+  const rateGuard = await guardRateLimit(request, 'create_donor', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
   if (!rateGuard.isAllowed) {
     return rateGuard.errorResponse;
   }
-  
+
   try {
     const body = await request.json();
     validateDonorPayload(body);
 
-    const { name, email, address, address_line_1, address_line_2, city, postcode, giftAidEligible } = body;
-    const controller = new DatabaseController(user.role, user.id);
-    const donorId = controller.createDonor({
+    const {
       name,
+      title,
+      first_name,
+      last_name,
       email,
-      address,
+      phone,
       address_line_1,
       address_line_2,
       city,
       postcode,
-      giftAidEligible
+      giftAidEligible,
+      gift_aid_eligible,
+      is_anonymous,
+      notes
+    } = body;
+
+    const controller = new D1Controller(user.role, user.id, user.name, user.email);
+    const donorId = await controller.createDonor({
+      name,
+      title,
+      first_name,
+      last_name,
+      email,
+      phone,
+      address_line_1,
+      address_line_2,
+      city,
+      postcode,
+      giftAidEligible: giftAidEligible ?? gift_aid_eligible,
+      is_anonymous,
+      notes
     });
 
-    logger.info('Donor registered', { donorId, name, userId: user.id });
+    logger.info('Donor registered in D1', { donorId, name, userId: user.id });
     return apiSuccess({ id: donorId }, { status: 201, message: 'Donor registered successfully', headers: rateGuard.headers });
   } catch (err) {
     logger.warn('Failed to register donor', { error: err.message, userId: user.id });

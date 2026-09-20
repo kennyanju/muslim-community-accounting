@@ -1,16 +1,21 @@
-import { DatabaseController, getOrganisationFromRequest, DISPLAY_SAFE_ORG_FIELDS } from '@/lib/db';
+import { D1Controller, DISPLAY_SAFE_ORG_FIELDS } from '@/lib/d1-controller';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
 import { validateOrganisationPayload } from '@/lib/validation';
 import { logger } from '@/lib/logger';
 
 export async function GET(request) {
-  const org = getOrganisationFromRequest(request);
-  return apiSuccess(org);
+  try {
+    const controller = new D1Controller('REVIEWER');
+    const org = await controller.getOrganisation();
+    return apiSuccess(org);
+  } catch (err) {
+    return apiError(err.message, 500);
+  }
 }
 
 export async function PUT(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
@@ -23,13 +28,13 @@ export async function PUT(request) {
     const body = await request.json();
     validateOrganisationPayload(body);
 
-    const controller = new DatabaseController(user.role, user.id);
-    const updated = controller.updateOrganisation(body);
+    const controller = new D1Controller(user.role, user.id, user.name, user.email);
+    const updated = await controller.updateOrganisation(body);
 
-    logger.info('Organisation profile updated', { name: updated.name, userId: user.id });
+    logger.info('Organisation profile updated in D1', { name: updated.name, userId: user.id });
 
     const response = apiSuccess(updated, { message: 'Organisation settings saved' });
-    
+
     // Set 1-year persistent cookie containing only display-safe fields to protect internal contact/charity metadata
     const displaySafeOrg = {};
     DISPLAY_SAFE_ORG_FIELDS.forEach(field => {

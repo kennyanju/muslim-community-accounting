@@ -6,16 +6,17 @@ import { config } from '@/lib/config';
 import { logger } from '@/lib/logger';
 
 export async function POST(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
 
   // Rate limit presigned upload ticket requests
-  const rateGuard = guardRateLimit(request, 'presigned_upload', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
+  const rateGuard = await guardRateLimit(request, 'presigned_upload', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
   if (!rateGuard.isAllowed) {
     return rateGuard.errorResponse;
   }
+
 
   try {
     const { filename, contentType } = await request.json();

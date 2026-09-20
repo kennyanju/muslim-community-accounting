@@ -1,9 +1,9 @@
-import { readDB } from '@/lib/db';
+import { D1Controller } from '@/lib/d1-controller';
 import { getAuthenticatedUser, requirePermission } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
 
 export async function GET(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized: Authentication required', 401, { code: 'UNAUTHORIZED' });
   }
@@ -14,17 +14,15 @@ export async function GET(request) {
     return apiError(authCheck.message, authCheck.status, { code: 'FORBIDDEN' });
   }
 
-  const db = readDB();
-  const userMap = new Map((db.users || []).map(u => [u.id, u]));
+  const { searchParams } = new URL(request.url);
+  const limit = Math.min(500, parseInt(searchParams.get('limit') || '100', 10));
+  const offset = Math.max(0, parseInt(searchParams.get('offset') || '0', 10));
 
-  const logs = (db.audit_logs || []).map(log => {
-    const logUser = userMap.get(log.user_id);
-    return {
-      ...log,
-      userEmail: log.user_email || (logUser ? logUser.email : (log.user_id || 'System')),
-      userName: log.user_name || (logUser ? logUser.name : (log.user_id || 'System'))
-    };
-  });
-  
-  return apiSuccess(logs);
+  try {
+    const controller = new D1Controller(user.role, user.id, user.name, user.email);
+    const logs = await controller.getAuditLogs(limit, offset);
+    return apiSuccess(logs);
+  } catch (err) {
+    return apiError(err.message, 500, { code: 'AUDIT_ERROR' });
+  }
 }

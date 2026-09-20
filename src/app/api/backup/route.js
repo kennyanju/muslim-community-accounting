@@ -1,4 +1,5 @@
-import { DatabaseController, DISPLAY_SAFE_ORG_FIELDS } from '@/lib/db';
+import { D1Controller, DISPLAY_SAFE_ORG_FIELDS } from '@/lib/d1-controller';
+
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
 import { guardRateLimit } from '@/lib/rateLimit';
@@ -6,7 +7,7 @@ import { config } from '@/lib/config';
 import { logger } from '@/lib/logger';
 
 export async function GET(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
@@ -16,14 +17,14 @@ export async function GET(request) {
   }
 
   // Rate limit backup export
-  const rateGuard = guardRateLimit(request, 'backup_export', config.rateLimit.backupMaxAttempts, config.rateLimit.backupWindowMs, user.id);
+  const rateGuard = await guardRateLimit(request, 'backup_export', config.rateLimit.backupMaxAttempts, config.rateLimit.backupWindowMs, user.id);
   if (!rateGuard.isAllowed) {
     return rateGuard.errorResponse;
   }
 
   try {
-    const controller = new DatabaseController(user.role, user.id);
-    const backupData = controller.exportBackup();
+    const controller = new D1Controller(user.role, user.id);
+    const backupData = await controller.exportBackup();
     const org = backupData.organisation || {};
     const shortName = (org.short_name || 'MASJID').replace(/[^a-zA-Z0-9]/g, '_');
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -44,7 +45,7 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
@@ -54,20 +55,23 @@ export async function POST(request) {
   }
 
   // Rate limit backup restore
-  const rateGuard = guardRateLimit(request, 'backup_restore', config.rateLimit.backupMaxAttempts, config.rateLimit.backupWindowMs, user.id);
+  const rateGuard = await guardRateLimit(request, 'backup_restore', config.rateLimit.backupMaxAttempts, config.rateLimit.backupWindowMs, user.id);
   if (!rateGuard.isAllowed) {
     return rateGuard.errorResponse;
   }
 
   try {
-    const backupData = await request.json();
-    const controller = new DatabaseController(user.role, user.id);
-    controller.restoreBackup(backupData);
+    const url = new URL(request.url);
+    const dryRun = url.searchParams.get('dryRun') === 'true';
 
-    logger.info('Database backup restored', { userId: user.id });
+    const backupData = await request.json();
+    const controller = new D1Controller(user.role, user.id);
+    const result = await controller.restoreBackup(backupData, dryRun);
+
+    logger.info(`Database backup ${dryRun ? 'dry-run simulated' : 'restored'}`, { userId: user.id, dryRun });
 
     const responseHeaders = { ...rateGuard.headers };
-    if (backupData.organisation && backupData.organisation.name) {
+    if (!dryRun && backupData.organisation && backupData.organisation.name) {
       // Whitelist only display-safe fields to avoid PII exposure in non-httpOnly cookie
       const displaySafeOrg = {};
       DISPLAY_SAFE_ORG_FIELDS.forEach(field => {
@@ -81,7 +85,13 @@ export async function POST(request) {
     }
 
     return Response.json(
-      { success: true, data: { restored: true }, message: 'Database restored successfully.' },
+      {
+        success: true,
+        data: result,
+        message: dryRun
+          ? 'Backup validation dry-run completed successfully.'
+          : `Database restored successfully. Snapshot ${result.snapshotId} created.`
+      },
       { status: 200, headers: responseHeaders }
     );
   } catch (err) {
@@ -91,7 +101,7 @@ export async function POST(request) {
 }
 
 export async function DELETE(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
@@ -101,14 +111,14 @@ export async function DELETE(request) {
   }
 
   // Rate limit database reset
-  const rateGuard = guardRateLimit(request, 'backup_reset', config.rateLimit.backupMaxAttempts, config.rateLimit.backupWindowMs, user.id);
+  const rateGuard = await guardRateLimit(request, 'backup_reset', config.rateLimit.backupMaxAttempts, config.rateLimit.backupWindowMs, user.id);
   if (!rateGuard.isAllowed) {
     return rateGuard.errorResponse;
   }
 
   try {
-    const controller = new DatabaseController(user.role, user.id);
-    controller.resetDatabase(true);
+    const controller = new D1Controller(user.role, user.id);
+    await controller.resetDatabase(true);
 
     logger.info('Database reset to clean template', { userId: user.id });
 
@@ -128,3 +138,4 @@ export async function DELETE(request) {
     return apiError(err.message, 400, { code: 'RESET_ERROR' });
   }
 }
+

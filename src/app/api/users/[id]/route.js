@@ -1,4 +1,4 @@
-import { DatabaseController } from '@/lib/db';
+import { D1Controller } from '@/lib/d1-controller';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
 import { validateUserPayload } from '@/lib/validation';
@@ -7,7 +7,7 @@ import { config } from '@/lib/config';
 import { logger } from '@/lib/logger';
 
 export async function PUT(request, { params }) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
@@ -23,7 +23,7 @@ export async function PUT(request, { params }) {
   }
 
   // Rate limit user profile modifications
-  const rateGuard = guardRateLimit(request, 'user_update', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
+  const rateGuard = await guardRateLimit(request, 'user_update', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
   if (!rateGuard.isAllowed) {
     return rateGuard.errorResponse;
   }
@@ -43,13 +43,37 @@ export async function PUT(request, { params }) {
       if (body.status !== undefined) sanitizedUpdate.status = body.status;
     }
 
-    const controller = new DatabaseController(user.role, user.id);
-    const updated = controller.updateUser(id, sanitizedUpdate);
+    const controller = new D1Controller(user.role, user.id, user.name, user.email);
+    const updated = await controller.updateUser(id, sanitizedUpdate);
 
-    logger.info('User updated', { targetUserId: id, modifiedBy: user.id });
+    logger.info('User updated in D1', { targetUserId: id, modifiedBy: user.id });
     return apiSuccess(updated, { message: 'User updated successfully', headers: rateGuard.headers });
   } catch (err) {
     logger.warn('Failed to update user', { targetUserId: id, error: err.message, userId: user.id });
     return apiError(err.message, 400, { code: 'UPDATE_ERROR' });
+  }
+}
+
+export async function DELETE(request, { params }) {
+  const user = await getAuthenticatedUser(request);
+  if (!user) {
+    return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
+  }
+
+  if (user.role !== 'ADMIN') {
+    return apiError('Forbidden: Admins only', 403, { code: 'FORBIDDEN' });
+  }
+
+  const { id } = await params;
+
+  try {
+    const controller = new D1Controller(user.role, user.id, user.name, user.email);
+    await controller.deleteUser(id);
+
+    logger.info('User account deleted from D1', { targetUserId: id, deletedBy: user.id });
+    return apiSuccess({ deleted: true }, { message: 'User deleted successfully' });
+  } catch (err) {
+    logger.warn('Failed to delete user', { targetUserId: id, error: err.message, userId: user.id });
+    return apiError(err.message, 400, { code: 'DELETE_ERROR' });
   }
 }

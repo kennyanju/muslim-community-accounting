@@ -1,6 +1,6 @@
 import { apiSuccess, apiError } from '@/lib/response';
 import { verifyStripeSignature } from '@/lib/webhooks';
-import { DatabaseController } from '@/lib/db';
+import { D1Controller } from '@/lib/d1-controller';
 import { logger } from '@/lib/logger';
 
 export async function POST(request) {
@@ -36,10 +36,10 @@ export async function POST(request) {
       const metadata = paymentData.metadata || {};
 
       if (amount > 0) {
-        const controller = new DatabaseController('ADMIN', 'system-stripe-webhook');
+        const controller = new D1Controller('ADMIN', 'system-stripe-webhook');
         const fundId = metadata.fund_id || 'fund-lillah';
         
-        controller.createTransaction({
+        await controller.createTransaction({
           type: 'INCOME',
           status: 'PENDING',
           method: 'CARD',
@@ -62,3 +62,4 @@ export async function POST(request) {
     return apiError(err.message, 400, { code: 'WEBHOOK_PROCESSING_ERROR' });
   }
 }
+

@@ -1,4 +1,4 @@
-import { readDB, DatabaseController } from '@/lib/db';
+import { D1Controller } from '@/lib/d1-controller';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
 import { validateTransactionPayload, validateDateRange, sanitizePagination } from '@/lib/validation';
@@ -9,7 +9,7 @@ import { logger } from '@/lib/logger';
 import { checkAndDispatchNotifications } from '@/lib/notifications';
 
 export async function GET(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
@@ -22,7 +22,7 @@ export async function GET(request) {
   const dateFrom = searchParams.get('dateFrom');
   const dateTo = searchParams.get('dateTo');
   const search = searchParams.get('search')?.toLowerCase().trim();
-  const jummahOnly = searchParams.get('jummahOnly') === 'true';
+  const jummahOnly = searchParams.get('jummahOnly') === 'true' || searchParams.get('is_jummah') === 'true';
   const format = searchParams.get('format');
   const paginate = searchParams.get('paginate') === 'true';
 
@@ -36,43 +36,18 @@ export async function GET(request) {
 
   // Rate limit heavy CSV exports
   if (format === 'csv') {
-    const rateGuard = guardRateLimit(request, 'ledger_csv_export', config.rateLimit.exportMaxAttempts, config.rateLimit.exportWindowMs, user.id);
+    const rateGuard = await guardRateLimit(request, 'ledger_csv_export', config.rateLimit.exportMaxAttempts, config.rateLimit.exportWindowMs, user.id);
     if (!rateGuard.isAllowed) {
       return rateGuard.errorResponse;
     }
   }
 
-  const db = readDB();
+  const controller = new D1Controller(user.role, user.id, user.name, user.email);
 
-  // Build O(1) in-memory index Maps for optimal hydration performance
-  const fundMap = new Map((db.funds || []).map(f => [f.id, f]));
-  const donorMap = new Map((db.donors || []).map(d => [d.id, d]));
-  const splitsByTxId = new Map();
-
-  (db.transaction_splits || []).forEach(split => {
-    let list = splitsByTxId.get(split.transaction_id);
-    if (!list) {
-      list = [];
-      splitsByTxId.set(split.transaction_id, list);
-    }
-    const fund = fundMap.get(split.fund_id);
-    list.push({
-      ...split,
-      fundName: fund ? fund.name : 'Unknown'
-    });
-  });
-  
-  // Single-pass hydration using O(1) index Maps
-  let result = (db.transactions || []).map(tx => {
-    const splits = splitsByTxId.get(tx.id) || [];
-    const donor = donorMap.get(tx.donor_id);
-    
-    return {
-      ...tx,
-      splits,
-      donorName: donor ? donor.name : 'Anonymous',
-      gift_aid_eligible: donor ? donor.gift_aid_eligible : false
-    };
+  // Fetch transactions with pre-joined splits from D1
+  let result = await controller.getTransactions({
+    dateFrom,
+    dateTo
   });
 
   // Query Filters
@@ -81,33 +56,16 @@ export async function GET(request) {
   }
 
   if (fundId && fundId !== 'all') {
-    result = result.filter(tx => tx.splits.some(s => s.fund_id === fundId));
+    result = result.filter(tx => tx.splits?.some(s => s.fund_id === fundId));
   }
 
   if (category && category !== 'all') {
     result = result.filter(tx => tx.category === category);
   }
 
-  if (dateRange.fromTime) {
-    result = result.filter(tx => {
-      const txTime = new Date(tx.transaction_date).getTime();
-      return !isNaN(txTime) ? txTime >= dateRange.fromTime : tx.transaction_date >= dateFrom;
-    });
-  }
-
-  if (dateRange.toTime) {
-    result = result.filter(tx => {
-      const txTime = new Date(tx.transaction_date).getTime();
-      return !isNaN(txTime) ? txTime <= dateRange.toTime : tx.transaction_date <= dateTo;
-    });
-  }
-
+  // Item #12: First-class Jummah collection filter
   if (jummahOnly) {
-    result = result.filter(tx => 
-      tx.reference_note?.toLowerCase().includes('jummah') ||
-      tx.notes?.toLowerCase().includes('jummah') ||
-      tx.notes?.toLowerCase().includes('counter')
-    );
+    result = result.filter(tx => tx.is_jummah === 1 || tx.is_jummah === true);
   }
 
   if (status && status !== 'all') {
@@ -115,9 +73,9 @@ export async function GET(request) {
       result = result.filter(tx => tx.status !== 'VOIDED' && tx.status !== 'FAILED');
     } else {
       const target = status.toUpperCase();
-      result = result.filter(tx => 
-        tx.status === target || 
-        (status === 'Cash on Hand' && tx.status === 'PENDING') || 
+      result = result.filter(tx =>
+        tx.status === target ||
+        (status === 'Cash on Hand' && tx.status === 'PENDING') ||
         (status === 'Banked' && tx.status === 'BANKED') ||
         (status === 'Voided' && tx.status === 'VOIDED')
       );
@@ -125,10 +83,10 @@ export async function GET(request) {
   }
 
   if (search) {
-    result = result.filter(tx => 
-      tx.description?.toLowerCase().includes(search) || 
+    result = result.filter(tx =>
+      tx.description?.toLowerCase().includes(search) ||
       tx.reference_note?.toLowerCase().includes(search) ||
-      tx.donorName?.toLowerCase().includes(search) ||
+      tx.donor_name?.toLowerCase().includes(search) ||
       tx.category?.toLowerCase().includes(search) ||
       tx.receipt_number?.toLowerCase().includes(search) ||
       tx.notes?.toLowerCase().includes(search)
@@ -137,46 +95,51 @@ export async function GET(request) {
 
   // Handle CSV export of full ledger with CSV Injection protection
   if (format === 'csv') {
-    const org = db.organisation || {};
-    let csv = `Date,Receipt No,Type,Reference / Description,Category,Donor,Fund Splits,Payment Method,Amount (${org.currency_symbol || '£'}),Status,Reconciled,Notes\n`;
-    
+    const org = await controller.getOrganisation();
+    let csv = `"Audit-Ready Transaction Ledger - ${sanitizeCsvCell(org.name || 'Masjid')}"\n`;
+    csv += `"Export Date:","${new Date().toISOString()}"\n`;
+    csv += `"Exported By:","${sanitizeCsvCell(user.email || 'Admin')}"\n\n`;
+
+    csv += `"Transaction ID","Receipt No.","Date","Type","Category","Fund Allocation(s)","Method","Donor","Status","Reconciled","Amount (£)","Notes"\n`;
+
     result.forEach(tx => {
-      const fundSplits = tx.splits.map(s => `${s.fundName}: ${s.amount}`).join(' | ');
-      const desc = tx.reference_note || tx.description || '';
-      const notes = tx.notes || '';
-      const donor = tx.donorName || 'Anonymous';
-      const recNo = tx.receipt_number || '';
-      
+      const fundNames = (tx.splits || []).map(s => `${s.fund_name || s.fund_id}: £${parseFloat(s.amount).toFixed(2)}`).join('; ');
+      const donor = tx.donor_name || 'Anonymous';
+
       const row = [
+        sanitizeCsvCell(tx.id),
+        sanitizeCsvCell(tx.receipt_number || 'N/A'),
         sanitizeCsvCell(tx.transaction_date),
-        sanitizeCsvCell(recNo),
         sanitizeCsvCell(tx.type),
-        sanitizeCsvCell(desc),
-        sanitizeCsvCell(tx.category || ''),
-        sanitizeCsvCell(donor),
-        sanitizeCsvCell(fundSplits),
+        sanitizeCsvCell(tx.category),
+        sanitizeCsvCell(fundNames),
         sanitizeCsvCell(tx.method),
-        parseFloat(tx.total_amount).toFixed(2),
+        sanitizeCsvCell(donor),
         sanitizeCsvCell(tx.status),
-        sanitizeCsvCell(tx.reconciled ? 'YES' : 'NO'),
-        sanitizeCsvCell(notes)
+        tx.reconciled ? 'YES' : 'NO',
+        parseFloat(tx.total_amount).toFixed(2),
+        sanitizeCsvCell(tx.reference_note || tx.notes || '')
       ];
-      
-      csv += row.join(',') + '\n';
+      csv += row.map(v => `"${v}"`).join(',') + '\n';
     });
 
+    const exportFilename = `masjid_ledger_${new Date().toISOString().split('T')[0]}.csv`;
     return new Response(csv, {
+      status: 200,
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename=Ledger_Export_${new Date().toISOString().substring(0, 10)}.csv`
+        'Content-Disposition': `attachment; filename="${exportFilename}"`
       }
     });
   }
 
+  // Server-side Pagination
   if (paginate) {
-    const { page, pageSize, offset } = sanitizePagination(searchParams, 15, 100);
-    const paginated = result.slice(offset, offset + pageSize);
-    return apiSuccess(paginated, {
+    const { page, pageSize } = sanitizePagination(searchParams.get('page'), searchParams.get('pageSize'));
+    const startIndex = (page - 1) * pageSize;
+    const paginatedItems = result.slice(startIndex, startIndex + pageSize);
+
+    return apiSuccess(paginatedItems, {
       meta: {
         total: result.length,
         page,
@@ -192,17 +155,17 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
-  
+
   if (user.role !== 'ADMIN') {
     return apiError('Forbidden: Financial Secretary (Admin) only', 403, { code: 'FORBIDDEN' });
   }
 
   // Rate limit transaction creation
-  const rateGuard = guardRateLimit(request, 'create_transaction', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
+  const rateGuard = await guardRateLimit(request, 'create_transaction', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
   if (!rateGuard.isAllowed) {
     return rateGuard.errorResponse;
   }
@@ -211,26 +174,27 @@ export async function POST(request) {
     const body = await request.json();
     validateTransactionPayload(body);
 
-    const { 
-      type, 
-      status, 
-      method, 
-      totalAmount, 
-      date, 
-      donorId, 
-      receiptUrl, 
-      reference_note, 
-      note, 
+    const {
+      type,
+      status,
+      method,
+      totalAmount,
+      date,
+      donorId,
+      receiptUrl,
+      reference_note,
+      note,
       description,
-      category, 
-      splits, 
-      giftAid, 
-      notes 
+      category,
+      splits,
+      giftAid,
+      notes,
+      is_jummah
     } = body;
 
-    const controller = new DatabaseController(user.role, user.id);
-    
-    const transactionId = controller.createTransaction({
+    const controller = new D1Controller(user.role, user.id, user.name, user.email);
+
+    const newTx = await controller.createTransaction({
       type,
       status,
       method,
@@ -242,15 +206,22 @@ export async function POST(request) {
       category,
       splits,
       giftAid,
-      notes
+      notes,
+      is_jummah
     });
 
-    logger.info('Transaction recorded', { transactionId, type, totalAmount, userId: user.id });
-    
-    // Asynchronously dispatch any critical trustee notifications
-    checkAndDispatchNotifications({ ...body, id: transactionId, receipt_number: transactionId }, readDB()).catch(() => {});
+    logger.info('Transaction recorded in D1', { transactionId: newTx.id, receiptNumber: newTx.receipt_number, type, totalAmount, userId: user.id });
 
-    return apiSuccess({ transactionId }, { status: 201, message: 'Transaction recorded successfully', headers: rateGuard.headers });
+    // Asynchronously dispatch any critical trustee notifications
+    checkAndDispatchNotifications(newTx, controller).catch(err => {
+      logger.error('Background notification dispatch error:', { error: err.message });
+    });
+
+    return apiSuccess({ transactionId: newTx.id, transaction: newTx }, {
+      status: 201,
+      message: 'Transaction recorded successfully',
+      headers: rateGuard.headers
+    });
 
   } catch (error) {
     logger.warn('Transaction creation failed', { error: error.message, userId: user.id });

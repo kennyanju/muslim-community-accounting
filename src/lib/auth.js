@@ -22,8 +22,7 @@ export function verifyPassword(password, storedHash) {
   if (!storedHash || !password) return false;
 
   try {
-    // 1. Direct plain text match fallback
-    if (storedHash === password) return true;
+    // 1. Disallow plain-text password comparison (Security compliance - Item #9)
 
     // 2. PBKDF2 format: "pbkdf2:iterations:salt:hexKey" or legacy "pbkdf2:salt:hexKey"
     if (storedHash.startsWith('pbkdf2:')) {
@@ -60,14 +59,16 @@ export function verifyPassword(password, storedHash) {
 }
 
 /**
- * Create a signed, tamper-proof session token
+ * Create a signed, tamper-proof session token with unique JTI nonce (Item #10)
  */
-export function createSessionToken(user) {
+export function createSessionToken(user, customJti = null) {
+  const jti = customJti || crypto.randomUUID();
   const payload = {
     id: user.id,
     email: user.email,
     role: user.role,
     name: user.name || user.email.split('@')[0],
+    jti,
     exp: Math.floor(Date.now() / 1000) + SESSION_MAX_AGE
   };
 
@@ -114,9 +115,9 @@ export function verifySessionToken(token) {
 }
 
 /**
- * Get current authenticated user from Next.js request cookies and verify active database status
+ * Get current authenticated user from Next.js request cookies and verify active database status + session revocation
  */
-export function getAuthenticatedUser(request) {
+export async function getAuthenticatedUser(request) {
   let token = null;
 
   // Check request cookies (Next.js Request or NextRequest)
@@ -137,6 +138,51 @@ export function getAuthenticatedUser(request) {
   const payload = verifySessionToken(token);
   if (!payload || !payload.id) return null;
 
+  // 1. Check D1 sessions table for revocation status (Item #10)
+  try {
+    const { getD1Database } = await import('./db-client.js');
+    const db = await getD1Database();
+    if (db && typeof db.prepare === 'function') {
+      if (payload.jti) {
+        const session = await db.prepare(`
+          SELECT s.*, u.status, u.role, u.name, u.email
+          FROM sessions s
+          JOIN users u ON u.id = s.user_id
+          WHERE s.jti = ?
+        `).bind(payload.jti).first();
+
+        if (session) {
+          if (session.revoked_at !== null || session.status !== 'ACTIVE') {
+            return null;
+          }
+          return {
+            id: session.user_id,
+            email: session.email,
+            role: session.role,
+            name: session.name || session.email.split('@')[0],
+            status: session.status,
+            jti: session.jti
+          };
+        }
+      }
+
+      // If no session row or token predates sessions table, verify live user status
+      const liveUser = await db.prepare(`SELECT id, email, role, name, status FROM users WHERE id = ?`).bind(payload.id).first();
+      if (liveUser) {
+        if (liveUser.status !== 'ACTIVE') return null;
+        return {
+          id: liveUser.id,
+          email: liveUser.email,
+          role: liveUser.role,
+          name: liveUser.name || liveUser.email.split('@')[0],
+          status: liveUser.status,
+          jti: payload.jti
+        };
+      }
+    }
+  } catch (_) {}
+
+  // 2. Fallback to readDB for test environments
   try {
     const db = readDB();
     const liveUser = (db.users || []).find(u => u.id === payload.id);
@@ -149,10 +195,63 @@ export function getAuthenticatedUser(request) {
       email: liveUser.email,
       role: liveUser.role,
       name: liveUser.name || liveUser.email.split('@')[0],
-      status: liveUser.status
+      status: liveUser.status,
+      jti: payload.jti
     };
   } catch (err) {
     return payload;
+  }
+}
+
+/**
+ * Synchronous variant of getAuthenticatedUser for synchronous tests
+ */
+export function getAuthenticatedUserSync(request) {
+  let token = null;
+  if (request?.cookies && typeof request.cookies.get === 'function') {
+    const cookieObj = request.cookies.get(SESSION_COOKIE_NAME);
+    token = cookieObj?.value || cookieObj;
+  } else if (request?.headers && typeof request.headers.get === 'function') {
+    const cookieHeader = request.headers.get('cookie');
+    if (cookieHeader) {
+      const match = cookieHeader.split(';').map(c => c.trim()).find(c => c.startsWith(`${SESSION_COOKIE_NAME}=`));
+      if (match) {
+        token = match.split('=')[1];
+      }
+    }
+  }
+
+  if (!token) return null;
+  return verifySessionToken(token);
+}
+
+/**
+ * Revoke a session by its JTI nonce
+ */
+export async function revokeSession(jti) {
+  try {
+    const { getD1Database } = await import('./db-client.js');
+    const db = await getD1Database();
+    if (db && typeof db.prepare === 'function') {
+      await db.prepare(`UPDATE sessions SET revoked_at = datetime('now') WHERE jti = ?`).bind(jti).run();
+    }
+  } catch (e) {
+    console.error('Failed to revoke session:', e.message);
+  }
+}
+
+/**
+ * Revoke all active sessions for a user (e.g. on deactivation or password reset)
+ */
+export async function revokeUserSessions(userId) {
+  try {
+    const { getD1Database } = await import('./db-client.js');
+    const db = await getD1Database();
+    if (db && typeof db.prepare === 'function') {
+      await db.prepare(`UPDATE sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`).bind(userId).run();
+    }
+  } catch (e) {
+    console.error('Failed to revoke user sessions:', e.message);
   }
 }
 

@@ -1,4 +1,4 @@
-import { DatabaseController } from '@/lib/db';
+import { D1Controller } from '@/lib/d1-controller';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
 import { validateDonorPayload } from '@/lib/validation';
@@ -7,7 +7,7 @@ import { config } from '@/lib/config';
 import { logger } from '@/lib/logger';
 
 export async function GET(request, { params }) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
@@ -15,8 +15,8 @@ export async function GET(request, { params }) {
   const { id } = await params;
 
   try {
-    const controller = new DatabaseController(user.role, user.id);
-    const donor = controller.getDonor(id);
+    const controller = new D1Controller(user.role, user.id, user.name, user.email);
+    const donor = await controller.getDonor(id);
 
     if (!donor) {
       return apiError('Donor not found', 404, { code: 'NOT_FOUND' });
@@ -29,7 +29,7 @@ export async function GET(request, { params }) {
 }
 
 export async function PUT(request, { params }) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
@@ -41,7 +41,7 @@ export async function PUT(request, { params }) {
 
   const { id } = await params;
 
-  const rateGuard = guardRateLimit(request, 'donor_update', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
+  const rateGuard = await guardRateLimit(request, 'donor_update', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
   if (!rateGuard.isAllowed) {
     return rateGuard.errorResponse;
   }
@@ -50,10 +50,10 @@ export async function PUT(request, { params }) {
     const body = await request.json();
     validateDonorPayload(body, true);
 
-    const controller = new DatabaseController(user.role, user.id);
-    const updated = controller.updateDonor(id, body);
+    const controller = new D1Controller(user.role, user.id, user.name, user.email);
+    const updated = await controller.updateDonor(id, body);
 
-    logger.info('Donor profile updated', { donorId: id, updatedBy: user.id });
+    logger.info('Donor profile updated in D1', { donorId: id, updatedBy: user.id });
     return apiSuccess(updated, { message: 'Donor updated successfully', headers: rateGuard.headers });
   } catch (err) {
     logger.warn('Failed to update donor profile', { donorId: id, error: err.message, userId: user.id });
@@ -62,7 +62,7 @@ export async function PUT(request, { params }) {
 }
 
 export async function DELETE(request, { params }) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
@@ -73,16 +73,16 @@ export async function DELETE(request, { params }) {
 
   const { id } = await params;
 
-  const rateGuard = guardRateLimit(request, 'donor_delete', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
+  const rateGuard = await guardRateLimit(request, 'donor_delete', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
   if (!rateGuard.isAllowed) {
     return rateGuard.errorResponse;
   }
 
   try {
-    const controller = new DatabaseController(user.role, user.id);
-    controller.deleteDonor(id);
+    const controller = new D1Controller(user.role, user.id, user.name, user.email);
+    await controller.deleteDonor(id);
 
-    logger.info('Donor record deleted', { donorId: id, deletedBy: user.id });
+    logger.info('Donor record deleted from D1', { donorId: id, deletedBy: user.id });
     return apiSuccess({ deleted: true }, { message: 'Donor deleted successfully', headers: rateGuard.headers });
   } catch (err) {
     logger.warn('Failed to delete donor record', { donorId: id, error: err.message, userId: user.id });

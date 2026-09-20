@@ -1,13 +1,13 @@
-import { NextResponse } from 'next/server';
-import { readDB, getOrganisationFromRequest } from '@/lib/db';
+import { D1Controller } from '@/lib/d1-controller';
 import { verifyPassword, createSessionToken, buildSessionCookie, getSafeUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
 import { guardRateLimit } from '@/lib/rateLimit';
 import { logger } from '@/lib/logger';
 import { config } from '@/lib/config';
+import crypto from 'crypto';
 
 export async function POST(request) {
-  const rateGuard = guardRateLimit(request, 'login', config.rateLimit.loginMaxAttempts, config.rateLimit.loginWindowMs);
+  const rateGuard = await guardRateLimit(request, 'login', config.rateLimit.loginMaxAttempts, config.rateLimit.loginWindowMs);
 
   if (!rateGuard.isAllowed) {
     logger.warn('Rate limit exceeded on login attempt', { resetTime: rateGuard.rate.resetTime });
@@ -21,8 +21,8 @@ export async function POST(request) {
       return apiError('Email and password are required', 400, { code: 'INVALID_CREDENTIALS', headers: rateGuard.headers });
     }
 
-    const db = readDB();
-    const user = db.users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+    const controller = new D1Controller('REVIEWER');
+    const user = await controller.getUserByEmail(email);
 
     if (!user || user.status !== 'ACTIVE') {
       logger.warn('Failed login attempt: inactive user or user not found', { email });
@@ -35,17 +35,22 @@ export async function POST(request) {
       return apiError('Invalid email or password', 401, { code: 'INVALID_CREDENTIALS', headers: rateGuard.headers });
     }
 
-    const token = createSessionToken(user);
+    // Generate unique JTI nonce and register session in D1 (Item #10)
+    const jti = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + (config.session.maxAge || 604800) * 1000).toISOString();
+    await controller.createSession(user.id, jti, expiresAt);
+
+    const token = createSessionToken(user, jti);
     const cookieHeader = buildSessionCookie(token);
     const safeUser = getSafeUser(user);
-    const org = getOrganisationFromRequest(request);
+    const org = await controller.getOrganisation();
 
-    logger.info('User logged in successfully', { userId: user.id, role: user.role });
+    logger.info('User logged in successfully with D1 session', { userId: user.id, role: user.role, jti });
 
     const response = apiSuccess({
       user: safeUser,
       organisation: org
-    }, { 
+    }, {
       message: 'Authentication successful',
       headers: rateGuard.headers
     });

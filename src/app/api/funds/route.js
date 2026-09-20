@@ -1,4 +1,4 @@
-import { DatabaseController } from '@/lib/db';
+import { D1Controller } from '@/lib/d1-controller';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
 import { validateFundPayload } from '@/lib/validation';
@@ -7,20 +7,20 @@ import { config } from '@/lib/config';
 import { logger } from '@/lib/logger';
 
 export async function GET(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
 
-  const controller = new DatabaseController(user.role, user.id);
-  const funds = controller.getFunds();
+  const controller = new D1Controller(user.role, user.id, user.name, user.email);
+  const funds = await controller.getFunds();
   return apiSuccess(funds, {
     headers: { 'Cache-Control': 'private, no-cache' }
   });
 }
 
 export async function POST(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
@@ -30,7 +30,7 @@ export async function POST(request) {
   }
 
   // Rate limit fund creation
-  const rateGuard = guardRateLimit(request, 'create_fund', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
+  const rateGuard = await guardRateLimit(request, 'create_fund', config.rateLimit.writeMaxAttempts, config.rateLimit.writeWindowMs, user.id);
   if (!rateGuard.isAllowed) {
     return rateGuard.errorResponse;
   }
@@ -40,10 +40,10 @@ export async function POST(request) {
     validateFundPayload(body, false);
 
     const { name, is_restricted, description } = body;
-    const controller = new DatabaseController(user.role, user.id);
-    const newFund = controller.createFund({ name, is_restricted, description });
+    const controller = new D1Controller(user.role, user.id, user.name, user.email);
+    const newFund = await controller.createFund({ name, is_restricted, description });
 
-    logger.info('Fund created', { fundId: newFund.id, name: newFund.name, userId: user.id });
+    logger.info('Fund created in D1', { fundId: newFund.id, name: newFund.name, userId: user.id });
     return apiSuccess(newFund, { status: 201, message: 'Fund created successfully', headers: rateGuard.headers });
   } catch (err) {
     logger.warn('Failed to create fund', { error: err.message, userId: user.id });

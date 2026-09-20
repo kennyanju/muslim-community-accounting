@@ -1,17 +1,17 @@
 import { getAuthenticatedUser, createSessionToken, buildSessionCookie } from '@/lib/auth';
-import { getOrganisationFromRequest } from '@/lib/db';
+import { D1Controller } from '@/lib/d1-controller';
 import { apiSuccess, apiError } from '@/lib/response';
 
 export async function GET(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
 
-  const organisation = getOrganisationFromRequest(request);
+  const organisation = await D1Controller.getOrganisation();
 
   // Sliding session auto-refresh: reissue fresh session token to maintain active persistence without abrupt logout
-  const token = createSessionToken(user);
+  const token = createSessionToken(user, user.jti);
   const cookieHeader = buildSessionCookie(token);
 
   const response = apiSuccess({
@@ -22,3 +22,4 @@ export async function GET(request) {
   response.headers.set('Set-Cookie', cookieHeader);
   return response;
 }
+

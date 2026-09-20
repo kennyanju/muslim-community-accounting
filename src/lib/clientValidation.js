@@ -109,29 +109,39 @@ export function validateClientDonor(form) {
 }
 
 /**
- * Validate User account creation payload
+ * Validate User account creation or password update
+ * Enforces 12+ characters and entropy standards for financial system operators (Item #11)
  */
-export function validateClientUser(form) {
+export function validateClientUser(form, isUpdate = false) {
   const errors = {};
 
-  if (!form.name || !form.name.trim()) {
+  if (!isUpdate && (!form.name || !form.name.trim())) {
     errors.name = 'Full name is required.';
   }
 
-  if (!form.email || !form.email.trim()) {
-    errors.email = 'Email address is required.';
-  } else if (!EMAIL_REGEX.test(form.email.trim())) {
-    errors.email = 'Please enter a valid email address.';
+  if (!isUpdate && (!form.email || !form.email.trim())) {
+    errors.email = 'User email address is required.';
+  } else if (form.email && !EMAIL_REGEX.test(form.email.trim())) {
+    errors.email = 'Please enter a valid work email address.';
   }
 
-  if (!form.password) {
-    errors.password = 'Password is required.';
-  } else if (form.password.length < 6) {
-    errors.password = 'Password must be at least 6 characters.';
+  if (!isUpdate && (!form.password || form.password.length < 12)) {
+    errors.password = 'Password must be at least 12 characters.';
+  } else if (form.password && form.password.trim() && form.password.length < 12) {
+    errors.password = 'Password must be at least 12 characters.';
+  } else if (form.password && form.password.trim()) {
+    const hasUpper = /[A-Z]/.test(form.password);
+    const hasLower = /[a-z]/.test(form.password);
+    const hasDigit = /[0-9]/.test(form.password);
+    const hasSpecial = /[^A-Za-z0-9]/.test(form.password);
+    const strengthScore = [hasUpper, hasLower, hasDigit, hasSpecial].filter(Boolean).length;
+    if (strengthScore < 3) {
+      errors.password = 'Password must include at least 3 of: uppercase, lowercase, numbers, or symbols.';
+    }
   }
 
-  if (!form.role || !['ADMIN', 'REVIEWER', 'AUDITOR'].includes(form.role)) {
-    errors.role = 'Please select a valid role (Financial Secretary, Committee, or Auditor).';
+  if (!isUpdate && (!form.role || !['ADMIN', 'REVIEWER', 'AUDITOR'].includes(form.role))) {
+    errors.role = 'Please assign a valid system RBAC role (Admin, Reviewer, or Auditor).';
   }
 
   return {
@@ -139,6 +149,7 @@ export function validateClientUser(form) {
     errors
   };
 }
+
 
 /**
  * Validate Login credentials
@@ -280,3 +291,4 @@ export function validateClientOrganisation(form) {
     errors
   };
 }
+

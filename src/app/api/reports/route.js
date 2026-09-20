@@ -1,13 +1,13 @@
-import { readDB } from '@/lib/db';
+import { D1Controller } from '@/lib/d1-controller';
 import { getAuthenticatedUser, requireRole } from '@/lib/auth';
 import { apiError } from '@/lib/response';
-import { validateDateRange } from '@/lib/validation';
+import { validateDateRange, getFiscalYearBounds } from '@/lib/validation';
 import { sanitizeCsvCell } from '@/lib/sanitize';
 import { guardRateLimit } from '@/lib/rateLimit';
 import { config } from '@/lib/config';
 
 export async function GET(request) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized: Authentication required', 401, { code: 'UNAUTHORIZED' });
   }
@@ -17,15 +17,31 @@ export async function GET(request) {
     return apiError(authCheck.message, authCheck.status, { code: 'FORBIDDEN' });
   }
 
-  const rateGuard = guardRateLimit(request, 'reports_export', config.rateLimit.exportMaxAttempts || 20, config.rateLimit.exportWindowMs || 60000, user.id);
+  const rateGuard = await guardRateLimit(request, 'reports_export', config.rateLimit.exportMaxAttempts || 20, config.rateLimit.exportWindowMs || 60000, user.id);
   if (!rateGuard.isAllowed) {
     return rateGuard.errorResponse;
   }
 
   const { searchParams } = new URL(request.url);
   const reportType = searchParams.get('type') || 'annual';
-  const dateFrom = searchParams.get('dateFrom');
-  const dateTo = searchParams.get('dateTo');
+  let dateFrom = searchParams.get('dateFrom');
+  let dateTo = searchParams.get('dateTo');
+  const fiscalYearParam = searchParams.get('fiscal_year');
+
+  const controller = new D1Controller(user.role, user.id, user.name, user.email);
+  const org = await controller.getOrganisation();
+
+  // Item #25: Default to UK Charity Fiscal Year bounds if dates omitted
+  if (!dateFrom && !dateTo) {
+    const fyBounds = getFiscalYearBounds(new Date(), org.fiscal_year_start || '04-06');
+    if (fiscalYearParam) {
+      dateFrom = `${fiscalYearParam}-${org.fiscal_year_start || '04-06'}`;
+      dateTo = `${parseInt(fiscalYearParam, 10) + 1}-${org.fiscal_year_start || '04-06'}`;
+    } else {
+      dateFrom = fyBounds.startDate;
+      dateTo = fyBounds.endDate;
+    }
+  }
 
   let dateRange;
   try {
@@ -34,24 +50,12 @@ export async function GET(request) {
     return apiError(err.message, 400, { code: 'INVALID_QUERY_PARAMETER', field: err.field });
   }
 
-  const db = readDB();
-  const org = db.organisation || {};
-  let transactions = (db.transactions || []).filter(t => t.status !== 'VOIDED' && t.status !== 'FAILED');
+  const transactions = await controller.getTransactions({
+    dateFrom,
+    dateTo
+  });
 
-  if (dateRange.fromTime) {
-    transactions = transactions.filter(t => {
-      const txTime = new Date(t.transaction_date).getTime();
-      return !isNaN(txTime) ? txTime >= dateRange.fromTime : t.transaction_date >= dateFrom;
-    });
-  }
-  if (dateRange.toTime) {
-    transactions = transactions.filter(t => {
-      const txTime = new Date(t.transaction_date).getTime();
-      return !isNaN(txTime) ? txTime <= dateRange.toTime : t.transaction_date <= dateTo;
-    });
-  }
-
-  // 1. SoFA / Annual Financial Activities Pack (CC17 / FRS 102)
+  // 1. SoFA / Annual Financial Activities Pack (CC17 / FRS 102) - Item #7
   if (reportType === 'annual' || reportType === 'sofa') {
     let csv = `"Statement of Financial Activities (SoFA) - ${sanitizeCsvCell(org.name || 'Masjid')}"\n`;
     csv += `"Charity Reg Number:","${sanitizeCsvCell(org.charity_number || 'N/A')}"\n`;
@@ -63,21 +67,26 @@ export async function GET(request) {
     const expenseCategories = {};
 
     transactions.forEach(t => {
-      const amt = parseFloat(t.total_amount) || 0;
+      if (t.status === 'VOIDED' || t.status === 'FAILED') return;
       const cat = t.category || (t.type === 'INCOME' ? 'Donation' : 'General');
-      
-      let isRestricted = false;
-      if (t.splits && t.splits.length > 0) {
-        isRestricted = t.splits.some(s => {
-          const fund = (db.funds || []).find(f => f.id === s.fund_id);
-          return fund && fund.is_restricted;
-        });
-      }
-
       const targetMap = t.type === 'INCOME' ? incomeCategories : expenseCategories;
       if (!targetMap[cat]) targetMap[cat] = { unrestricted: 0, restricted: 0 };
-      if (isRestricted) targetMap[cat].restricted += amt;
-      else targetMap[cat].unrestricted += amt;
+
+      // Item #7: Accurately split by each allocation's fund restriction status
+      if (t.splits && t.splits.length > 0) {
+        t.splits.forEach(s => {
+          if (s.is_voided) return;
+          const sAmt = parseFloat(s.amount) || 0;
+          if (s.is_restricted) {
+            targetMap[cat].restricted += sAmt;
+          } else {
+            targetMap[cat].unrestricted += sAmt;
+          }
+        });
+      } else {
+        const amt = parseFloat(t.total_amount) || 0;
+        targetMap[cat].unrestricted += amt;
+      }
     });
 
     csv += `"--- INCOMING RESOURCES ---","","","",""\n`;
@@ -121,7 +130,7 @@ export async function GET(request) {
     let csv = `"Asnaf Zakat & Fitrana Distribution Schedule - ${sanitizeCsvCell(org.name || 'Masjid')}"\n`;
     csv += `"Beneficiary / Ref","Asnaf Category","Amount (£)","Distribution Date","Trustee Witness","Verification Notes"\n`;
 
-    const asnafRecords = db.asnaf_records || [];
+    const asnafRecords = await controller.getAsnafRecords(fiscalYearParam);
     asnafRecords.forEach(r => {
       csv += `"${sanitizeCsvCell(r.beneficiary_name)}","${r.asnaf_category}","${(parseFloat(r.amount) || 0).toFixed(2)}","${r.distribution_date || ''}","${sanitizeCsvCell(r.witness_name || '')}","${sanitizeCsvCell(r.verification_notes || '')}"\n`;
     });

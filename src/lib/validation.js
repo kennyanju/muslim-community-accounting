@@ -11,6 +11,19 @@ export const ALLOWED_INCOME_CATEGORIES = ['Donation', 'Zakat', 'Fitrana', 'Madra
 export const ALLOWED_EXPENSE_CATEGORIES = ['Utilities', 'Salaries', 'Maintenance', 'Charitable Payout', 'Office Supplies', 'Travel', 'Other'];
 export const ALLOWED_USER_ROLES = ['ADMIN', 'REVIEWER', 'AUDITOR'];
 
+/**
+ * HMRC Basic Tax Rate Constant & Gift Aid Calculation
+ * HMRC standard basic rate is currently 20% (0.20), yielding a 25% tax reclaim: amount * (0.20 / (1 - 0.20))
+ */
+export const HMRC_BASIC_RATE = parseFloat(process.env.HMRC_BASIC_RATE || '0.20');
+
+export function calculateGiftAidClaim(amount) {
+  const num = typeof amount === 'number' ? amount : parseFloat(amount) || 0;
+  if (num <= 0) return 0;
+  const reclaim = num * (HMRC_BASIC_RATE / (1 - HMRC_BASIC_RATE));
+  return Math.round(reclaim * 100) / 100;
+}
+
 export class ValidationError extends Error {
   constructor(message, field = null) {
     super(message);
@@ -164,8 +177,8 @@ export function validateUserPayload(data, isUpdate = false) {
     if (!email || typeof email !== 'string' || !EMAIL_REGEX.test(email.trim())) {
       throw new ValidationError('A valid user email address is required.', 'email');
     }
-    if (!password || typeof password !== 'string' || password.length < 6) {
-      throw new ValidationError('Password must be at least 6 characters.', 'password');
+    if (!password || typeof password !== 'string' || password.length < 12) {
+      throw new ValidationError('Password must be at least 12 characters.', 'password');
     }
     if (!role || !ALLOWED_USER_ROLES.includes(role)) {
       throw new ValidationError(`User role must be one of: ${ALLOWED_USER_ROLES.join(', ')}`, 'role');
@@ -174,8 +187,8 @@ export function validateUserPayload(data, isUpdate = false) {
     if (email !== undefined && (typeof email !== 'string' || !EMAIL_REGEX.test(email.trim()))) {
       throw new ValidationError('Invalid email format.', 'email');
     }
-    if (password !== undefined && password.trim() && password.length < 6) {
-      throw new ValidationError('Password must be at least 6 characters.', 'password');
+    if (password !== undefined && password.trim() && password.length < 12) {
+      throw new ValidationError('Password must be at least 12 characters.', 'password');
     }
     if (role !== undefined && !ALLOWED_USER_ROLES.includes(role)) {
       throw new ValidationError(`Invalid role specified. Must be one of: ${ALLOWED_USER_ROLES.join(', ')}`, 'role');
@@ -306,3 +319,89 @@ export function validateOrganisationPayload(data) {
 
   return true;
 }
+
+/**
+ * Programmatic best-effort split for donor names
+ * Handles English & Islamic honorifics (Mr, Mrs, Dr, Sheikh, Imam, Brother, Sister, etc.) and compound surnames
+ */
+export function splitDonorName(fullName) {
+  if (!fullName || typeof fullName !== 'string') {
+    return { title: '', firstName: '', lastName: '' };
+  }
+  const clean = fullName.trim();
+  if (!clean) return { title: '', firstName: '', lastName: '' };
+
+  const knownTitles = [
+    'mr', 'mrs', 'ms', 'miss', 'dr', 'prof', 'professor',
+    'brother', 'sister', 'br', 'sr',
+    'haji', 'hajjah', 'sheikh', 'shaykh', 'imam', 'ustadh', 'ustadha',
+    'syed', 'sayyid', 'qari', 'hafiz', 'al-hajj'
+  ];
+
+  const parts = clean.split(/\s+/);
+  let title = '';
+  let startIndex = 0;
+
+  if (parts.length > 1) {
+    const firstLower = parts[0].toLowerCase().replace(/\.$/, '');
+    if (knownTitles.includes(firstLower)) {
+      title = parts[0];
+      startIndex = 1;
+    }
+  }
+
+  const remaining = parts.slice(startIndex);
+  if (remaining.length === 0) {
+    return { title, firstName: '', lastName: '' };
+  }
+  if (remaining.length === 1) {
+    return { title, firstName: remaining[0], lastName: '' };
+  }
+
+  const firstName = remaining[0];
+  const lastName = remaining.slice(1).join(' ');
+
+  return { title, firstName, lastName };
+}
+
+/**
+ * Calculates start and end bounds for the UK Charity Fiscal Year (April 6 - April 5)
+ * @param {Date|string} targetDate
+ * @param {string} startMMDD - default '04-06'
+ * @returns {{ startYear: number, endYear: number, startDate: string, endDate: string, label: string, fiscalYear: number }}
+ */
+export function getFiscalYearBounds(targetDate = new Date(), startMMDD = '04-06') {
+  const d = typeof targetDate === 'string' ? new Date(targetDate) : (targetDate instanceof Date ? targetDate : new Date());
+  const year = isNaN(d.getFullYear()) ? new Date().getFullYear() : d.getFullYear();
+  const [startMonth, startDay] = startMMDD.split('-').map(n => parseInt(n, 10));
+
+  // Date of start of fiscal year in current calendar year
+  const startThisYear = new Date(Date.UTC(year, startMonth - 1, startDay, 0, 0, 0));
+
+  let startYear;
+  if (d < startThisYear) {
+    startYear = year - 1;
+  } else {
+    startYear = year;
+  }
+
+  const endYear = startYear + 1;
+  const startDate = `${startYear}-${String(startMonth).padStart(2, '0')}-${String(startDay).padStart(2, '0')}`;
+
+  const endD = new Date(Date.UTC(endYear, startMonth - 1, startDay - 1, 23, 59, 59));
+  const endMonth = endD.getUTCMonth() + 1;
+  const endDay = endD.getUTCDate();
+  const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
+
+  return {
+    startYear,
+    endYear,
+    startDate,
+    endDate,
+    start: startDate,
+    end: endDate,
+    label: `${startYear}/${endYear}`,
+    fiscalYear: startYear
+  };
+}
+

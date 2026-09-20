@@ -1,11 +1,11 @@
-import { DatabaseController } from '@/lib/db';
+import { D1Controller } from '@/lib/d1-controller';
 import { getAuthenticatedUser } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/response';
 import { validateFundPayload } from '@/lib/validation';
 import { logger } from '@/lib/logger';
 
 export async function PUT(request, { params }) {
-  const user = getAuthenticatedUser(request);
+  const user = await getAuthenticatedUser(request);
   if (!user) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
@@ -20,10 +20,10 @@ export async function PUT(request, { params }) {
     const body = await request.json();
     validateFundPayload(body, true);
 
-    const controller = new DatabaseController(user.role, user.id);
-    const updated = controller.updateFund(id, body);
+    const controller = new D1Controller(user.role, user.id, user.name, user.email);
+    const updated = await controller.updateFund(id, body);
 
-    logger.info('Fund updated', { fundId: id, changes: body, userId: user.id });
+    logger.info('Fund updated in D1', { fundId: id, changes: body, userId: user.id });
     return apiSuccess(updated, { message: 'Fund updated successfully' });
   } catch (err) {
     logger.warn('Failed to update fund', { fundId: id, error: err.message, userId: user.id });

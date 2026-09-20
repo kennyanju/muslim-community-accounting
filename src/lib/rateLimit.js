@@ -97,11 +97,74 @@ export function getRateLimitHeaders(rate) {
  * @param {number} windowMs
  * @param {string} [userId]
  * @returns {{ isAllowed: boolean, rate: object, headers: object, errorResponse: Response|null }}
+/**
+ * D1-backed check and record rate limit hit
  */
-export function guardRateLimit(request, prefix, maxRequests = 60, windowMs = 60000, userId = null) {
+export async function checkRateLimitD1(db, key, maxRequests = 60, windowMs = 60000) {
+  const windowSeconds = Math.max(1, Math.ceil(windowMs / 1000));
+  try {
+    await db.prepare(`INSERT INTO rate_limit_hits (key, timestamp) VALUES (?, datetime('now'))`).bind(key).run();
+
+    const countRes = await db.prepare(`
+      SELECT COUNT(*) as hit_count FROM rate_limit_hits
+      WHERE key = ? AND timestamp > datetime('now', '-' || ? || ' seconds')
+    `).bind(key, windowSeconds).first('hit_count');
+
+    const hits = Number(countRes || 1);
+
+    // Opportunistic cleanup
+    if (Math.random() < 0.05) {
+      db.prepare(`DELETE FROM rate_limit_hits WHERE timestamp < datetime('now', '-300 seconds')`).run().catch(() => {});
+    }
+
+    if (hits > maxRequests) {
+      return {
+        isAllowed: false,
+        limit: maxRequests,
+        remaining: 0,
+        resetTime: windowSeconds
+      };
+    }
+
+    return {
+      isAllowed: true,
+      limit: maxRequests,
+      remaining: Math.max(0, maxRequests - hits),
+      resetTime: windowSeconds
+    };
+  } catch (err) {
+    // Fall back to in-memory check
+    return checkRateLimit(key, maxRequests, windowMs);
+  }
+}
+
+/**
+ * Helper to apply rate limiting and return error response if exceeded
+ * Backed by Cloudflare D1 rate_limit_hits with seamless in-memory fallback (Item #2)
+ * @param {Request} request
+ * @param {string} prefix
+ * @param {number} maxRequests
+ * @param {number} windowMs
+ * @param {string} [userId]
+ * @returns {Promise<{ isAllowed: boolean, rate: object, headers: object, errorResponse: Response|null }>}
+ */
+export async function guardRateLimit(request, prefix, maxRequests = 60, windowMs = 60000, userId = null) {
   const ip = getClientIp(request);
   const key = userId ? `${prefix}:${userId}:${ip}` : `${prefix}:${ip}`;
-  const rate = checkRateLimit(key, maxRequests, windowMs);
+
+  let rate;
+  try {
+    const { getD1Database } = await import('./db-client.js');
+    const db = await getD1Database();
+    if (db && typeof db.prepare === 'function') {
+      rate = await checkRateLimitD1(db, key, maxRequests, windowMs);
+    } else {
+      rate = checkRateLimit(key, maxRequests, windowMs);
+    }
+  } catch (e) {
+    rate = checkRateLimit(key, maxRequests, windowMs);
+  }
+
   const headers = getRateLimitHeaders(rate);
 
   if (!rate.isAllowed) {

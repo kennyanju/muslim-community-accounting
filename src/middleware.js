@@ -67,13 +67,22 @@ function isValidOrigin(request) {
   if (!origin) {
     // If no origin header is provided, check referer header if present
     const referer = request.headers.get('referer');
-    if (!referer) return true; // Native direct fetch
-    try {
-      const refUrl = new URL(referer);
-      return refUrl.host === host || isAllowedOrigin(referer, host);
-    } catch (e) {
-      return false;
+    if (referer) {
+      try {
+        const refUrl = new URL(referer);
+        return refUrl.host === host || isAllowedOrigin(referer, host);
+      } catch (e) {
+        return false;
+      }
     }
+
+    // CSRF Defense (Item #23): Require custom anti-CSRF header or webhook exemption
+    const pathname = request.nextUrl?.pathname || '';
+    if (pathname.startsWith('/api/webhooks/')) return true;
+    const hasCustomHeader = request.headers.get('x-requested-with') ||
+                            request.headers.get('x-csrf-token') ||
+                            request.headers.get('authorization');
+    return Boolean(hasCustomHeader);
   }
 
   return isAllowedOrigin(origin, host);
