@@ -7,12 +7,12 @@ const SESSION_SECRET = config.session.secret;
 const SESSION_MAX_AGE = config.session.maxAge;
 
 /**
- * Hash a password using PBKDF2 with a random salt (universally supported across Node and Cloudflare workerd)
+ * Hash a password using PBKDF2 with a random salt (600,000 iterations per NIST SP 800-63B)
  */
-export function hashPassword(password) {
+export function hashPassword(password, iterations = 600000) {
   const salt = crypto.randomBytes(16).toString('hex');
-  const derivedKey = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512');
-  return `pbkdf2:${salt}:${derivedKey.toString('hex')}`;
+  const derivedKey = crypto.pbkdf2Sync(password, salt, iterations, 64, 'sha512');
+  return `pbkdf2:${iterations}:${salt}:${derivedKey.toString('hex')}`;
 }
 
 /**
@@ -25,10 +25,15 @@ export function verifyPassword(password, storedHash) {
     // 1. Direct plain text match fallback
     if (storedHash === password) return true;
 
-    // 2. PBKDF2 format: "pbkdf2:salt:hexKey"
+    // 2. PBKDF2 format: "pbkdf2:iterations:salt:hexKey" or legacy "pbkdf2:salt:hexKey"
     if (storedHash.startsWith('pbkdf2:')) {
       const parts = storedHash.split(':');
-      if (parts.length === 3) {
+      if (parts.length === 4) {
+        const [, iterStr, salt, key] = parts;
+        const iterations = parseInt(iterStr, 10) || 600000;
+        const derivedKey = crypto.pbkdf2Sync(password, salt, iterations, 64, 'sha512');
+        return crypto.timingSafeEqual(Buffer.from(key, 'hex'), derivedKey);
+      } else if (parts.length === 3) {
         const [, salt, key] = parts;
         const derivedKey = crypto.pbkdf2Sync(password, salt, 10000, 64, 'sha512');
         return crypto.timingSafeEqual(Buffer.from(key, 'hex'), derivedKey);

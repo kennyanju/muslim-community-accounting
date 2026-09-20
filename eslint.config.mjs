@@ -20,6 +20,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "scripts/**",
     "src/lib/test_compliance.js",
+    "src/lib/test_d1_integration.js",
+    "src/lib/db-migrate.js",
     "src/lib/logger.js",
   ]),
 ]);

@@ -24,6 +24,9 @@ const ReportsTab = dynamic(() => import('@/components/tabs/ReportsTab'), {
 const ReceiptsTab = dynamic(() => import('@/components/tabs/ReceiptsTab'), {
   loading: () => <CardSkeleton count={2} />
 });
+const BudgetTab = dynamic(() => import('@/components/tabs/BudgetTab'), {
+  loading: () => <CardSkeleton count={3} />
+});
 const SettingsTab = dynamic(() => import('@/components/tabs/SettingsTab'), {
   loading: () => <CardSkeleton count={4} />
 });
@@ -35,6 +38,7 @@ const DonorModal = dynamic(() => import('@/components/modals/DonorModal'), { ssr
 const VoidModal = dynamic(() => import('@/components/modals/VoidModal'), { ssr: false });
 const FundModal = dynamic(() => import('@/components/modals/FundModal'), { ssr: false });
 const UserModal = dynamic(() => import('@/components/modals/UserModal'), { ssr: false });
+const AsnafModal = dynamic(() => import('@/components/modals/AsnafModal'), { ssr: false });
 
 import Toast from '@/components/common/Toast';
 import OfflineBanner from '@/components/common/OfflineBanner';
@@ -95,6 +99,11 @@ function MainApp() {
                   <ReceiptsTab preloadedTx={preloadedReceiptTx} />
                 </ErrorBoundary>
               )}
+              {activeTab === 'budgets' && (
+                <ErrorBoundary componentName="BudgetTab">
+                  <BudgetTab />
+                </ErrorBoundary>
+              )}
               {activeTab === 'settings' && user?.role === 'ADMIN' && (
                 <ErrorBoundary componentName="SettingsTab">
                   <SettingsTab />
@@ -134,6 +143,11 @@ function MainApp() {
       {modals?.user && (
         <ErrorBoundary componentName="UserModal">
           <UserModal />
+        </ErrorBoundary>
+      )}
+      {modals?.asnaf && (
+        <ErrorBoundary componentName="AsnafModal">
+          <AsnafModal />
         </ErrorBoundary>
       )}
 

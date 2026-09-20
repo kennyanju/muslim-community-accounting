@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node src/lib/test_compliance.js && node scripts/verify_backup_restore.js",
+    "test": "node src/lib/test_compliance.js && node scripts/verify_backup_restore.js && node src/lib/test_d1_integration.js",
     "verify-restore": "node scripts/verify_backup_restore.js",
     "reset-db": "node scripts/reset_db.js",
     "lint": "eslint",

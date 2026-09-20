@@ -100,6 +100,18 @@ export default function Sidebar({ isOpen, onClose }) {
             <span>Receipts</span>
           </button>
 
+          <button 
+            type="button"
+            aria-current={activeTab === 'budgets' ? 'page' : undefined}
+            className={`menu-item ${activeTab === 'budgets' ? 'active' : ''}`}
+            onClick={() => handleNavClick('budgets')}
+            id="tab-btn-budgets"
+            style={{ minHeight: '44px' }}
+          >
+            <span className="menu-icon" aria-hidden="true">🕌</span>
+            <span>Budgets &amp; Nisab</span>
+          </button>
+
           {user?.role === 'ADMIN' && (
             <button 
               type="button"

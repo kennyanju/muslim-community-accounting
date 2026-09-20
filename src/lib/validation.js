@@ -92,15 +92,19 @@ export function validateTransactionPayload(data) {
 /**
  * Validate Donor registration payload
  */
-export function validateDonorPayload(data) {
+export function validateDonorPayload(data, isUpdate = false) {
   if (!data || typeof data !== 'object') {
     throw new ValidationError('Invalid donor payload object.');
   }
 
   const { name, email, giftAidEligible, address_line_1, postcode } = data;
 
-  if (!name || typeof name !== 'string' || !name.trim()) {
+  if (!isUpdate && (!name || typeof name !== 'string' || !name.trim())) {
     throw new ValidationError('Donor full name is required.', 'name');
+  }
+
+  if (name !== undefined && typeof name === 'string' && !name.trim()) {
+    throw new ValidationError('Donor full name cannot be empty.', 'name');
   }
 
   if (email && typeof email === 'string' && email.trim()) {

@@ -6,6 +6,7 @@ import { sanitizeCsvCell } from '@/lib/sanitize';
 import { guardRateLimit } from '@/lib/rateLimit';
 import { config } from '@/lib/config';
 import { logger } from '@/lib/logger';
+import { checkAndDispatchNotifications } from '@/lib/notifications';
 
 export async function GET(request) {
   const user = getAuthenticatedUser(request);
@@ -245,6 +246,10 @@ export async function POST(request) {
     });
 
     logger.info('Transaction recorded', { transactionId, type, totalAmount, userId: user.id });
+    
+    // Asynchronously dispatch any critical trustee notifications
+    checkAndDispatchNotifications({ ...body, id: transactionId, receipt_number: transactionId }, readDB()).catch(() => {});
+
     return apiSuccess({ transactionId }, { status: 201, message: 'Transaction recorded successfully', headers: rateGuard.headers });
 
   } catch (error) {

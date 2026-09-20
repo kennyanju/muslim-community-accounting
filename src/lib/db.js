@@ -602,6 +602,172 @@ export class DatabaseController {
     return dId;
   }
 
+  getDonors() {
+    const db = readDB();
+    return db.donors || [];
+  }
+
+  getDonor(id) {
+    const db = readDB();
+    const donor = (db.donors || []).find(d => d.id === id);
+    if (!donor) return null;
+    const donorTxs = (db.transactions || []).filter(t => t.donor_id === id);
+    return {
+      ...donor,
+      transactions: donorTxs,
+      totalContributed: donorTxs
+        .filter(t => t.type === 'INCOME' && t.status !== 'VOIDED' && t.status !== 'FAILED')
+        .reduce((sum, t) => sum + (parseFloat(t.total_amount) || 0), 0)
+    };
+  }
+
+  updateDonor(id, { name, email, phone, address, address_line_1, address_line_2, city, postcode, giftAidEligible, notes }) {
+    this.checkAdmin();
+    const db = readDB();
+    const donor = (db.donors || []).find(d => d.id === id);
+    if (!donor) throw new Error("Donor not found");
+
+    let line1 = address_line_1;
+    let pcode = postcode;
+    let donorCity = city;
+
+    // Legacy address parser if single string is provided
+    if (!line1 && address && address.trim()) {
+      const parts = address.split(',').map(p => p.trim());
+      line1 = parts[0] || '';
+      pcode = parts.length > 1 ? parts[parts.length - 1] : '';
+      if (parts.length > 2) donorCity = parts[parts.length - 2];
+    }
+
+    if (name && name.trim()) donor.name = sanitizeText(name);
+    if (email !== undefined) donor.email = (email || '').trim().toLowerCase();
+    if (phone !== undefined) donor.phone = sanitizeText(phone || '');
+    if (line1 !== undefined) donor.address_line_1 = sanitizeText(line1 || '');
+    if (address_line_2 !== undefined) donor.address_line_2 = sanitizeText(address_line_2 || '');
+    if (donorCity !== undefined) donor.city = sanitizeText(donorCity || '');
+    if (pcode !== undefined) donor.postcode = (pcode || '').trim().toUpperCase();
+    if (notes !== undefined) donor.notes = sanitizeText(notes || '');
+
+    if (giftAidEligible !== undefined) {
+      const willBeEligible = !!giftAidEligible;
+      if (willBeEligible) {
+        if (!donor.address_line_1 || !donor.address_line_1.trim()) {
+          throw new Error("Address line 1 is required for Gift Aid eligible donors.");
+        }
+        if (!donor.postcode || !donor.postcode.trim()) {
+          throw new Error("Postcode is required for Gift Aid eligible donors.");
+        }
+        if (!donor.gift_aid_declaration_date) {
+          donor.gift_aid_declaration_date = new Date().toISOString().split('T')[0];
+        }
+      }
+      donor.gift_aid_eligible = willBeEligible;
+    }
+
+    donor.updated_at = new Date().toISOString();
+    this.logAudit('donors', id, 'UPDATE', db);
+
+    writeDB(db);
+    return donor;
+  }
+
+  deleteDonor(id) {
+    this.checkAdmin();
+    if (id === 'anonymous') throw new Error("Cannot delete the anonymous donor profile.");
+    const db = readDB();
+    const hasTransactions = (db.transactions || []).some(t => t.donor_id === id);
+    if (hasTransactions) {
+      throw new Error("Cannot delete donor with existing transaction records. Please preserve records for HMRC audit trail.");
+    }
+    const idx = (db.donors || []).findIndex(d => d.id === id);
+    if (idx === -1) throw new Error("Donor not found");
+    db.donors.splice(idx, 1);
+    this.logAudit('donors', id, 'DELETE', db);
+    writeDB(db);
+    return true;
+  }
+
+  // -------------------------------------------------------------
+  // BUDGETS & TARGETS (Islamic Financial Planning)
+  // -------------------------------------------------------------
+  getBudgets(year = new Date().getFullYear()) {
+    const db = readDB();
+    return (db.budgets || []).filter(b => b.fiscal_year === parseInt(year, 10));
+  }
+
+  saveBudget({ fund_id, fiscal_year, target_amount, max_spend_limit, notes }) {
+    this.checkAdmin();
+    const db = readDB();
+    db.budgets = db.budgets || [];
+    const year = parseInt(fiscal_year || new Date().getFullYear(), 10);
+    const existingIndex = db.budgets.findIndex(b => b.fund_id === fund_id && b.fiscal_year === year);
+    
+    const budgetRecord = {
+      id: existingIndex >= 0 ? db.budgets[existingIndex].id : `bgt-${crypto.randomUUID().substring(0, 8)}`,
+      fund_id,
+      fiscal_year: year,
+      target_amount: parseFloat(target_amount || 0),
+      max_spend_limit: max_spend_limit !== undefined && max_spend_limit !== '' ? parseFloat(max_spend_limit) : null,
+      notes: sanitizeText(notes || ''),
+      updated_at: new Date().toISOString()
+    };
+
+    if (existingIndex >= 0) {
+      db.budgets[existingIndex] = { ...db.budgets[existingIndex], ...budgetRecord };
+    } else {
+      budgetRecord.created_at = new Date().toISOString();
+      db.budgets.push(budgetRecord);
+    }
+
+    this.logAudit('budgets', budgetRecord.id, existingIndex >= 0 ? 'UPDATE' : 'INSERT', db);
+    writeDB(db);
+    return budgetRecord;
+  }
+
+  // -------------------------------------------------------------
+  // ASNAF BENEFICIARY AUDITING (Zakat & Fitrana Distribution)
+  // -------------------------------------------------------------
+  getAsnafRecords(year = null) {
+    const db = readDB();
+    let records = db.asnaf_records || [];
+    if (year) {
+      const yearStr = String(year);
+      records = records.filter(r => (r.distribution_date || '').startsWith(yearStr));
+    }
+    return records;
+  }
+
+  recordAsnafDisbursement({ transaction_id, beneficiary_name, asnaf_category, amount, distribution_date, witness_name, verification_notes }) {
+    this.checkAdmin();
+    const validCategories = ['FUQARA', 'MASAKEEN', 'AMILINA_ALAYHA', 'MUALLAFAT_QULUB', 'FIR_RIQAB', 'GHARIMEEN', 'FI_SABILILLAH', 'IBN_SABIL'];
+    if (!validCategories.includes(asnaf_category)) {
+      throw new Error(`Invalid Asnaf category: ${asnaf_category}`);
+    }
+    if (!beneficiary_name || !beneficiary_name.trim()) {
+      throw new Error("Beneficiary name or pseudonym is required for Zakat audit trail.");
+    }
+
+    const db = readDB();
+    db.asnaf_records = db.asnaf_records || [];
+    const asnafId = `asnaf-${crypto.randomUUID().substring(0, 8)}`;
+    const record = {
+      id: asnafId,
+      transaction_id,
+      beneficiary_name: sanitizeText(beneficiary_name),
+      asnaf_category,
+      amount: parseFloat(amount || 0),
+      distribution_date: distribution_date || new Date().toISOString().split('T')[0],
+      witness_name: sanitizeText(witness_name || ''),
+      verification_notes: sanitizeText(verification_notes || ''),
+      created_at: new Date().toISOString()
+    };
+
+    db.asnaf_records.unshift(record);
+    this.logAudit('asnaf_records', asnafId, 'INSERT', db);
+    writeDB(db);
+    return record;
+  }
+
   // -------------------------------------------------------------
   // BACKUP & RESTORE (C3)
   // -------------------------------------------------------------

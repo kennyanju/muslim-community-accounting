@@ -14,6 +14,11 @@ export default function SettingsTab() {
   const [isExportingBackup, setIsExportingBackup] = useState(false);
   const [isRestoringBackup, setIsRestoringBackup] = useState(false);
   const [isResettingDb, setIsResettingDb] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetConfirmInput, setResetConfirmInput] = useState('');
+  const [showRestoreModal, setShowRestoreModal] = useState(false);
+  const [restoreConfirmInput, setRestoreConfirmInput] = useState('');
+  const [pendingRestorePayload, setPendingRestorePayload] = useState(null);
   const fileInputRef = useRef(null);
 
   const handleUpdateOrganisation = async (e) => {
@@ -59,9 +64,9 @@ export default function SettingsTab() {
       window.open('/api/backup', '_blank');
       addToast('Database JSON backup downloaded.', 'success');
     } catch (err) {
-      addToast('Failed to download backup.', 'error');
+      addToast('Failed to export backup.', 'error');
     } finally {
-      setTimeout(() => setIsExportingBackup(false), 1000);
+      setIsExportingBackup(false);
     }
   };
 
@@ -70,37 +75,48 @@ export default function SettingsTab() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target.result);
-        const confirmRestore = window.confirm(
-          'CAUTION: Restoring will overwrite current database records with the backup file. Proceed?'
-        );
-        if (!confirmRestore) return;
-
-        setIsRestoringBackup(true);
-        await fetchAPI('/api/backup', {
-          method: 'POST',
-          body: JSON.stringify(json)
-        });
-        addToast('Database backup successfully restored!', 'success');
-        refreshData();
+        setPendingRestorePayload(json);
+        setRestoreConfirmInput('');
+        setShowRestoreModal(true);
       } catch (err) {
-        addToast(`Restore failed: ${err.message}`, 'error');
-      } finally {
-        setIsRestoringBackup(false);
+        addToast(`Invalid backup JSON file: ${err.message}`, 'error');
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     };
     reader.readAsText(file);
   };
 
-  const handleResetDatabase = async () => {
-    const confirmReset = window.confirm(
-      '⚠️ DANGER: Are you sure you want to reset the database to a clean state?\n\nThis will clear all transactions, splits, and sample donors so you can start from scratch. Your login will be preserved.\n\nThis action cannot be undone.'
-    );
-    if (!confirmReset) return;
+  const handleExecuteRestore = async () => {
+    if (restoreConfirmInput.trim() !== 'RESTORE' || !pendingRestorePayload) return;
+    setShowRestoreModal(false);
+    setIsRestoringBackup(true);
+    try {
+      await fetchAPI('/api/backup', {
+        method: 'POST',
+        body: JSON.stringify(pendingRestorePayload)
+      });
+      addToast('Database backup successfully restored!', 'success');
+      refreshData();
+    } catch (err) {
+      addToast(`Restore failed: ${err.message}`, 'error');
+    } finally {
+      setIsRestoringBackup(false);
+      setPendingRestorePayload(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
+  const handleOpenResetModal = () => {
+    setResetConfirmInput('');
+    setShowResetModal(true);
+  };
+
+  const handleExecuteReset = async () => {
+    if (resetConfirmInput.trim() !== 'RESET') return;
+    setShowResetModal(false);
     setIsResettingDb(true);
     try {
       await fetchAPI('/api/backup', { method: 'DELETE' });
@@ -487,10 +503,110 @@ export default function SettingsTab() {
               <button 
                 type="button" 
                 className="btn btn-danger" 
-                onClick={handleResetDatabase}
+                onClick={handleOpenResetModal}
                 disabled={isResettingDb}
               >
                 {isResettingDb ? '⚠️ Resetting Database...' : '⚠️ Reset Database to Clean State'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Typed Confirmation Modal for Clean Reset */}
+      {showResetModal && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="reset-modal-title">
+          <div className="modal-card glass-card" style={{ maxWidth: '480px' }}>
+            <div className="modal-header">
+              <h3 id="reset-modal-title" style={{ color: 'var(--danger)' }}>⚠️ Confirm Clean Database Reset</h3>
+              <button 
+                type="button" 
+                className="btn-icon" 
+                onClick={() => setShowResetModal(false)}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <div style={{ padding: '16px 0' }}>
+              <p style={{ fontSize: '0.9rem', marginBottom: '14px', lineHeight: 1.5 }}>
+                This destructive action will <strong>permanently erase all transactions, splits, and sample donors</strong> to prepare for a fresh financial year. Your current administrator account will remain intact.
+              </p>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                To proceed, please type <strong style={{ color: 'var(--danger)' }}>RESET</strong> in capital letters below:
+              </p>
+              <input
+                type="text"
+                value={resetConfirmInput}
+                onChange={e => setResetConfirmInput(e.target.value)}
+                placeholder="Type RESET to confirm"
+                style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '2px solid var(--danger)', borderRadius: 'var(--radius-sm)' }}
+                autoFocus
+              />
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="btn btn-outline" onClick={() => setShowResetModal(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={resetConfirmInput.trim() !== 'RESET' || isResettingDb}
+                onClick={handleExecuteReset}
+              >
+                {isResettingDb ? 'Resetting...' : 'Permanently Wipe & Reset'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Typed Confirmation Modal for Restore */}
+      {showRestoreModal && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="restore-modal-title">
+          <div className="modal-card glass-card" style={{ maxWidth: '480px' }}>
+            <div className="modal-header">
+              <h3 id="restore-modal-title" style={{ color: 'var(--primary)' }}>♻️ Confirm Database Restore</h3>
+              <button 
+                type="button" 
+                className="btn-icon" 
+                onClick={() => { setShowRestoreModal(false); setPendingRestorePayload(null); }}
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <div style={{ padding: '16px 0' }}>
+              <p style={{ fontSize: '0.9rem', marginBottom: '14px', lineHeight: 1.5 }}>
+                Restoring will overwrite your current active ledger records with the data from the selected backup file.
+              </p>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                To proceed, please type <strong style={{ color: 'var(--primary)' }}>RESTORE</strong> below:
+              </p>
+              <input
+                type="text"
+                value={restoreConfirmInput}
+                onChange={e => setRestoreConfirmInput(e.target.value)}
+                placeholder="Type RESTORE to confirm"
+                style={{ width: '100%', padding: '10px', fontSize: '1rem', border: '2px solid var(--primary)', borderRadius: 'var(--radius-sm)' }}
+                autoFocus
+              />
+            </div>
+            <div className="modal-actions">
+              <button 
+                type="button" 
+                className="btn btn-outline" 
+                onClick={() => { setShowRestoreModal(false); setPendingRestorePayload(null); }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={restoreConfirmInput.trim() !== 'RESTORE' || isRestoringBackup}
+                onClick={handleExecuteRestore}
+              >
+                {isRestoringBackup ? 'Restoring...' : 'Confirm Restore'}
               </button>
             </div>
           </div>

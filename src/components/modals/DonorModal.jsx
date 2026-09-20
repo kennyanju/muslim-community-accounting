@@ -5,31 +5,30 @@ import { useApp } from '@/context/AppContext';
 import { validateClientDonor } from '@/lib/clientValidation';
 import { useModalFocusTrap } from '@/hooks/useModalFocusTrap';
 
-const INITIAL_DONOR_FORM = {
-  name: '',
-  email: '',
-  address_line_1: '',
-  address_line_2: '',
-  city: '',
-  postcode: '',
-  giftAidEligible: false
-};
-
-export default function DonorModal() {
+function DonorModalContent() {
   const { modals, closeModal, fetchAPI, addToast, refreshData } = useApp();
   const modalContainerRef = useRef(null);
 
+  const isEditing = Boolean(modals.donor && typeof modals.donor === 'object' && modals.donor.id);
+  const initialDonor = isEditing ? modals.donor : null;
+
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
-  const [form, setForm] = useState(INITIAL_DONOR_FORM);
+  const [form, setForm] = useState({
+    name: initialDonor?.name || '',
+    email: initialDonor?.email || '',
+    address_line_1: initialDonor?.address_line_1 || '',
+    address_line_2: initialDonor?.address_line_2 || '',
+    city: initialDonor?.city || '',
+    postcode: initialDonor?.postcode || '',
+    giftAidEligible: Boolean(initialDonor?.gift_aid_eligible)
+  });
 
   const handleClose = useCallback(() => {
     setErrors({});
-    setForm(INITIAL_DONOR_FORM);
     closeModal('donor');
   }, [closeModal]);
 
-  // Focus trapping & accessible keyboard cycling
   useModalFocusTrap(Boolean(modals.donor), handleClose, modalContainerRef);
 
   const handleSubmit = async (e) => {
@@ -47,12 +46,20 @@ export default function DonorModal() {
     setSubmitting(true);
 
     try {
-      await fetchAPI('/api/donors', {
-        method: 'POST',
-        body: JSON.stringify(form)
-      });
+      if (isEditing) {
+        await fetchAPI(`/api/donors/${modals.donor.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(form)
+        });
+        addToast(`Donor "${form.name}" updated successfully.`, 'success');
+      } else {
+        await fetchAPI('/api/donors', {
+          method: 'POST',
+          body: JSON.stringify(form)
+        });
+        addToast(`Donor "${form.name}" registered successfully.`, 'success');
+      }
 
-      addToast(`Donor "${form.name}" registered successfully.`, 'success');
       handleClose();
       refreshData();
     } catch (err) {
@@ -62,13 +69,13 @@ export default function DonorModal() {
     }
   };
 
-  if (!modals.donor) return null;
-
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="donor-modal-title">
       <div className="modal-card glass-card" ref={modalContainerRef}>
         <div className="modal-header">
-          <h3 id="donor-modal-title">👤 Register New Donor Profile</h3>
+          <h3 id="donor-modal-title">
+            {isEditing ? '✏️ Edit Donor Profile' : '👤 Register New Donor Profile'}
+          </h3>
           <button 
             type="button" 
             className="btn-icon" 
@@ -91,7 +98,7 @@ export default function DonorModal() {
               placeholder="e.g. Dr. Majid Khan" 
               value={form.name} 
               onChange={e => {
-                setForm({ ...form, name: e.target.value });
+                setForm(prev => ({ ...prev, name: e.target.value }));
                 if (errors.name) setErrors(prev => ({ ...prev, name: null }));
               }} 
               required 
@@ -109,7 +116,7 @@ export default function DonorModal() {
               placeholder="e.g. majid.khan@example.com" 
               value={form.email} 
               onChange={e => {
-                setForm({ ...form, email: e.target.value });
+                setForm(prev => ({ ...prev, email: e.target.value }));
                 if (errors.email) setErrors(prev => ({ ...prev, email: null }));
               }} 
             />
@@ -124,7 +131,7 @@ export default function DonorModal() {
                 type="checkbox" 
                 name="giftAidEligible"
                 checked={form.giftAidEligible} 
-                onChange={e => setForm({ ...form, giftAidEligible: e.target.checked })} 
+                onChange={e => setForm(prev => ({ ...prev, giftAidEligible: e.target.checked }))} 
               />
               <span><strong>Signed UK Gift Aid Declaration on file (+25% tax reclaim)</strong></span>
             </label>
@@ -140,7 +147,7 @@ export default function DonorModal() {
               placeholder="House name / number and street" 
               value={form.address_line_1} 
               onChange={e => {
-                setForm({ ...form, address_line_1: e.target.value });
+                setForm(prev => ({ ...prev, address_line_1: e.target.value }));
                 if (errors.address_line_1) setErrors(prev => ({ ...prev, address_line_1: null }));
               }} 
               required={form.giftAidEligible}
@@ -157,7 +164,7 @@ export default function DonorModal() {
               autoComplete="address-line2"
               placeholder="Apartment, suite, unit, etc." 
               value={form.address_line_2} 
-              onChange={e => setForm({ ...form, address_line_2: e.target.value })} 
+              onChange={e => setForm(prev => ({ ...prev, address_line_2: e.target.value }))} 
             />
           </div>
 
@@ -171,7 +178,7 @@ export default function DonorModal() {
                 autoComplete="address-level2"
                 placeholder="e.g. Bristol" 
                 value={form.city} 
-                onChange={e => setForm({ ...form, city: e.target.value })} 
+                onChange={e => setForm(prev => ({ ...prev, city: e.target.value }))} 
               />
             </div>
             <div className="form-group">
@@ -184,7 +191,7 @@ export default function DonorModal() {
                 placeholder="e.g. BS3 1AB" 
                 value={form.postcode} 
                 onChange={e => {
-                  setForm({ ...form, postcode: e.target.value.toUpperCase() });
+                  setForm(prev => ({ ...prev, postcode: e.target.value.toUpperCase() }));
                   if (errors.postcode) setErrors(prev => ({ ...prev, postcode: null }));
                 }} 
                 required={form.giftAidEligible}
@@ -208,11 +215,18 @@ export default function DonorModal() {
               disabled={submitting}
               style={{ minHeight: '44px' }}
             >
-              {submitting ? 'Registering...' : '💾 Save Donor Profile'}
+              {submitting ? (isEditing ? 'Updating...' : 'Registering...') : (isEditing ? '💾 Update Donor' : '💾 Save Donor Profile')}
             </button>
           </div>
         </form>
       </div>
     </div>
   );
+}
+
+export default function DonorModal() {
+  const { modals } = useApp();
+  if (!modals?.donor) return null;
+  const key = typeof modals.donor === 'object' && modals.donor.id ? modals.donor.id : 'create';
+  return <DonorModalContent key={key} />;
 }
