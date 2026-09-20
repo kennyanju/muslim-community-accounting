@@ -100,7 +100,7 @@
       "postcode": ""
     },
     {
-      "id": "don-6df14f8d",
+      "id": "don-0eb0f2cb",
       "name": "Dr. Tariq Al-Mansoor",
       "email": "tariq@example.org.uk",
       "is_anonymous": false,
@@ -109,10 +109,10 @@
       "address_line_2": "",
       "city": "Bristol",
       "postcode": "BS8 1TH",
-      "created_at": "2026-09-20T08:53:03.869Z"
+      "created_at": "2026-09-20T08:57:19.491Z"
     },
     {
-      "id": "don-8e34c9a1",
+      "id": "don-61273174",
       "name": "Sister Maryam Begum",
       "email": "maryam@example.org.uk",
       "is_anonymous": false,
@@ -121,10 +121,10 @@
       "address_line_2": "",
       "city": "Bristol",
       "postcode": "BS3 4EF",
-      "created_at": "2026-09-20T08:53:03.870Z"
+      "created_at": "2026-09-20T08:57:19.491Z"
     },
     {
-      "id": "don-cbc17569",
+      "id": "don-264e94d6",
       "name": "Brother With Transaction",
       "email": "",
       "is_anonymous": false,
@@ -133,20 +133,20 @@
       "address_line_2": "",
       "city": "",
       "postcode": "",
-      "created_at": "2026-09-20T08:53:03.914Z"
+      "created_at": "2026-09-20T08:57:19.538Z"
     }
   ],
   "transactions": [
     {
-      "id": "tx-ad4c1b34",
+      "id": "tx-3e436e5f",
       "type": "INCOME",
       "status": "BANKED",
       "method": "CASH",
       "total_amount": 100,
       "transaction_date": "2026-09-01",
-      "donor_id": "don-cbc17569",
+      "donor_id": "don-264e94d6",
       "receipt_url": "",
-      "receipt_number": "BSMC-2026-0216",
+      "receipt_number": "BSMC-2026-0224",
       "reference_note": "Donation",
       "category": "Donation",
       "created_by": "user-sec-1",
@@ -155,7 +155,7 @@
       "giftAid": false
     },
     {
-      "id": "tx-9a6bbda3",
+      "id": "tx-9f4888ec",
       "type": "EXPENSE",
       "status": "BANKED",
       "method": "BANK_TRANSFER",
@@ -172,7 +172,7 @@
       "giftAid": false
     },
     {
-      "id": "tx-f743fc2c",
+      "id": "tx-131de965",
       "type": "INCOME",
       "status": "PENDING",
       "method": "CASH",
@@ -180,7 +180,7 @@
       "transaction_date": "2026-08-22",
       "donor_id": "anonymous",
       "receipt_url": "",
-      "receipt_number": "BSMC-2026-0215",
+      "receipt_number": "BSMC-2026-0223",
       "reference_note": "Jummah Prayer Collection #34",
       "category": "Donation",
       "created_by": "system-pitr-verifier",
@@ -189,15 +189,15 @@
       "giftAid": false
     },
     {
-      "id": "tx-eaaaea53",
+      "id": "tx-0af2c03d",
       "type": "INCOME",
       "status": "BANKED",
       "method": "BANK_TRANSFER",
       "total_amount": 500,
       "transaction_date": "2026-08-15",
-      "donor_id": "don-6df14f8d",
+      "donor_id": "don-0eb0f2cb",
       "receipt_url": "",
-      "receipt_number": "BSMC-2026-0214",
+      "receipt_number": "BSMC-2026-0222",
       "reference_note": "Monthly Standing Order",
       "category": "Donation",
       "created_by": "system-pitr-verifier",
@@ -208,43 +208,43 @@
   ],
   "transaction_splits": [
     {
-      "id": "split-d3f0d6c6",
-      "transaction_id": "tx-eaaaea53",
+      "id": "split-457011f4",
+      "transaction_id": "tx-0af2c03d",
       "fund_id": "fund-building",
       "amount": 300,
       "is_voided": false
     },
     {
-      "id": "split-4fcd2cbf",
-      "transaction_id": "tx-eaaaea53",
+      "id": "split-d7cf57ec",
+      "transaction_id": "tx-0af2c03d",
       "fund_id": "fund-lillah",
       "amount": 200,
       "is_voided": false
     },
     {
-      "id": "split-8a760f69",
-      "transaction_id": "tx-f743fc2c",
+      "id": "split-49d26c70",
+      "transaction_id": "tx-131de965",
       "fund_id": "fund-lillah",
       "amount": 750,
       "is_voided": false
     },
     {
-      "id": "split-678d993f",
-      "transaction_id": "tx-f743fc2c",
+      "id": "split-e5bf2dd8",
+      "transaction_id": "tx-131de965",
       "fund_id": "fund-building",
       "amount": 500,
       "is_voided": false
     },
     {
-      "id": "split-c328735f",
-      "transaction_id": "tx-9a6bbda3",
+      "id": "split-a164c65c",
+      "transaction_id": "tx-9f4888ec",
       "fund_id": "fund-zakat",
       "amount": 400,
       "is_voided": false
     },
     {
-      "id": "split-c74631b7",
-      "transaction_id": "tx-ad4c1b34",
+      "id": "split-d7561b6f",
+      "transaction_id": "tx-3e436e5f",
       "fund_id": "fund-lillah",
       "amount": 100,
       "is_voided": false
@@ -252,172 +252,172 @@
   ],
   "audit_logs": [
     {
-      "id": "log-1ad885d3",
+      "id": "log-77f2a9fb",
       "table_name": "donors",
-      "record_id": "don-c098e8c1",
+      "record_id": "don-8412af83",
       "action": "DELETE",
       "user_id": "user-sec-1",
       "user_email": "secretary@bsmc.org.uk",
       "user_name": "Financial Secretary",
-      "timestamp": "2026-09-20T08:53:03.915Z"
+      "timestamp": "2026-09-20T08:57:19.539Z"
     },
     {
-      "id": "log-13552942",
+      "id": "log-7e2f1dca",
       "table_name": "transactions",
-      "record_id": "tx-ad4c1b34",
+      "record_id": "tx-3e436e5f",
       "action": "INSERT",
       "user_id": "user-sec-1",
       "user_email": "secretary@bsmc.org.uk",
       "user_name": "Financial Secretary",
-      "timestamp": "2026-09-20T08:53:03.915Z"
+      "timestamp": "2026-09-20T08:57:19.538Z"
     },
     {
-      "id": "log-3c5c34ea",
+      "id": "log-42cef600",
       "table_name": "donors",
-      "record_id": "don-cbc17569",
+      "record_id": "don-264e94d6",
       "action": "INSERT",
       "user_id": "user-sec-1",
       "user_email": "secretary@bsmc.org.uk",
       "user_name": "Financial Secretary",
-      "timestamp": "2026-09-20T08:53:03.914Z"
+      "timestamp": "2026-09-20T08:57:19.538Z"
     },
     {
-      "id": "log-d586e132",
+      "id": "log-3b064ef9",
       "table_name": "asnaf_records",
-      "record_id": "asnaf-4741f591",
+      "record_id": "asnaf-653c33d0",
       "action": "INSERT",
       "user_id": "user-sec-1",
       "user_email": "secretary@bsmc.org.uk",
       "user_name": "Financial Secretary",
-      "timestamp": "2026-09-20T08:53:03.914Z"
+      "timestamp": "2026-09-20T08:57:19.537Z"
     },
     {
-      "id": "log-58b039b0",
+      "id": "log-581d7e23",
       "table_name": "budgets",
-      "record_id": "bgt-d6fd0831",
+      "record_id": "bgt-18b31843",
       "action": "INSERT",
       "user_id": "user-sec-1",
       "user_email": "secretary@bsmc.org.uk",
       "user_name": "Financial Secretary",
-      "timestamp": "2026-09-20T08:53:03.913Z"
+      "timestamp": "2026-09-20T08:57:19.537Z"
     },
     {
-      "id": "log-09c457ca",
+      "id": "log-7a40d624",
       "table_name": "donors",
-      "record_id": "don-c098e8c1",
+      "record_id": "don-8412af83",
       "action": "UPDATE",
       "user_id": "user-sec-1",
       "user_email": "secretary@bsmc.org.uk",
       "user_name": "Financial Secretary",
-      "timestamp": "2026-09-20T08:53:03.913Z"
+      "timestamp": "2026-09-20T08:57:19.537Z"
     },
     {
-      "id": "log-3b28a162",
+      "id": "log-37d87f00",
       "table_name": "donors",
-      "record_id": "don-c098e8c1",
+      "record_id": "don-8412af83",
       "action": "INSERT",
       "user_id": "user-sec-1",
       "user_email": "secretary@bsmc.org.uk",
       "user_name": "Financial Secretary",
-      "timestamp": "2026-09-20T08:53:03.913Z"
+      "timestamp": "2026-09-20T08:57:19.536Z"
     },
     {
-      "id": "log-42757242",
+      "id": "log-b1a29b8f",
       "table_name": "database",
       "record_id": "full_restore",
       "action": "RESTORE",
       "user_id": "system-pitr-verifier",
       "user_email": "system-pitr-verifier",
       "user_name": "system-pitr-verifier",
-      "timestamp": "2026-09-20T08:53:03.872Z"
+      "timestamp": "2026-09-20T08:57:19.494Z"
     },
     {
-      "id": "log-a31bf6a7",
+      "id": "log-5b07e29d",
       "table_name": "transactions",
-      "record_id": "tx-eaaaea53",
+      "record_id": "tx-0af2c03d",
       "action": "UPDATE",
       "user_id": "system-pitr-verifier",
       "user_email": "system-pitr-verifier",
       "user_name": "system-pitr-verifier",
-      "timestamp": "2026-09-20T08:53:03.870Z"
+      "timestamp": "2026-09-20T08:57:19.492Z"
     },
     {
-      "id": "log-5e065b32",
+      "id": "log-d74615f2",
       "table_name": "transactions",
-      "record_id": "tx-9a6bbda3",
+      "record_id": "tx-9f4888ec",
       "action": "INSERT",
       "user_id": "system-pitr-verifier",
       "user_email": "system-pitr-verifier",
       "user_name": "system-pitr-verifier",
-      "timestamp": "2026-09-20T08:53:03.870Z"
+      "timestamp": "2026-09-20T08:57:19.492Z"
     },
     {
-      "id": "log-e549a3a8",
+      "id": "log-6f4ec619",
       "table_name": "transactions",
-      "record_id": "tx-f743fc2c",
+      "record_id": "tx-131de965",
       "action": "INSERT",
       "user_id": "system-pitr-verifier",
       "user_email": "system-pitr-verifier",
       "user_name": "system-pitr-verifier",
-      "timestamp": "2026-09-20T08:53:03.870Z"
+      "timestamp": "2026-09-20T08:57:19.492Z"
     },
     {
-      "id": "log-aa33064b",
+      "id": "log-1958401e",
       "table_name": "transactions",
-      "record_id": "tx-eaaaea53",
+      "record_id": "tx-0af2c03d",
       "action": "INSERT",
       "user_id": "system-pitr-verifier",
       "user_email": "system-pitr-verifier",
       "user_name": "system-pitr-verifier",
-      "timestamp": "2026-09-20T08:53:03.870Z"
+      "timestamp": "2026-09-20T08:57:19.492Z"
     },
     {
-      "id": "log-27c341be",
+      "id": "log-dbf55dbe",
       "table_name": "donors",
-      "record_id": "don-8e34c9a1",
+      "record_id": "don-61273174",
       "action": "INSERT",
       "user_id": "system-pitr-verifier",
       "user_email": "system-pitr-verifier",
       "user_name": "system-pitr-verifier",
-      "timestamp": "2026-09-20T08:53:03.870Z"
+      "timestamp": "2026-09-20T08:57:19.491Z"
     },
     {
-      "id": "log-c708414b",
+      "id": "log-2780b84a",
       "table_name": "donors",
-      "record_id": "don-6df14f8d",
+      "record_id": "don-0eb0f2cb",
       "action": "INSERT",
       "user_id": "system-pitr-verifier",
       "user_email": "system-pitr-verifier",
       "user_name": "system-pitr-verifier",
-      "timestamp": "2026-09-20T08:53:03.869Z"
+      "timestamp": "2026-09-20T08:57:19.491Z"
     },
     {
-      "id": "log-29f85dcd",
+      "id": "log-7598c77b",
       "table_name": "database",
       "record_id": "clean_reset",
       "action": "RESET",
       "user_id": "system-pitr-verifier",
       "user_email": "system-pitr-verifier",
       "user_name": "system-pitr-verifier",
-      "timestamp": "2026-09-20T08:53:03.868Z"
+      "timestamp": "2026-09-20T08:57:19.490Z"
     }
   ],
-  "receipt_counter": 217,
+  "receipt_counter": 225,
   "budgets": [
     {
-      "id": "bgt-d6fd0831",
+      "id": "bgt-18b31843",
       "fund_id": "fund-lillah",
       "fiscal_year": 2026,
       "target_amount": 35000,
       "max_spend_limit": 40000,
       "notes": "Operational budget approved by shura",
-      "updated_at": "2026-09-20T08:53:03.913Z",
-      "created_at": "2026-09-20T08:53:03.913Z"
+      "updated_at": "2026-09-20T08:57:19.537Z",
+      "created_at": "2026-09-20T08:57:19.537Z"
     }
   ],
   "asnaf_records": [
     {
-      "id": "asnaf-4741f591",
+      "id": "asnaf-653c33d0",
       "transaction_id": "tx-test-asnaf",
       "beneficiary_name": "Sister Fatima (Widow support)",
       "asnaf_category": "FUQARA",
@@ -425,7 +425,7 @@
       "distribution_date": "2026-09-15",
       "witness_name": "Imam Abdullah",
       "verification_notes": "Rent arrears verified with housing charity",
-      "created_at": "2026-09-20T08:53:03.914Z"
+      "created_at": "2026-09-20T08:57:19.537Z"
     }
   ]
 }
