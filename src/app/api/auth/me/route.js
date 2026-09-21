@@ -8,7 +8,8 @@ export async function GET(request) {
     return apiError('Unauthorized', 401, { code: 'UNAUTHORIZED' });
   }
 
-  const organisation = await D1Controller.getOrganisation();
+  const controller = new D1Controller(user.role, user.id, user.name, user.email);
+  const organisation = await controller.getOrganisation();
 
   // Sliding session auto-refresh: reissue fresh session token to maintain active persistence without abrupt logout
   const token = createSessionToken(user, user.jti);

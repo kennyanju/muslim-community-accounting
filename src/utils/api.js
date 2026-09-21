@@ -31,8 +31,15 @@ export async function fetchAPI(endpoint, options = {}) {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      const error = new Error(errorData.error || `Request failed with status ${response.status}`);
+      const errorMessage = (typeof errorData?.error === 'object' && errorData?.error?.message)
+        ? errorData.error.message
+        : (typeof errorData?.error === 'string'
+            ? errorData.error
+            : (errorData?.message || `Request failed with status ${response.status}`));
+      const error = new Error(errorMessage);
       error.status = response.status;
+      error.code = errorData?.error?.code || errorData?.code;
+      error.details = errorData?.error?.details || errorData?.details;
       throw error;
     }
 

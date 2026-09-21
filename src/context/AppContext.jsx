@@ -26,7 +26,7 @@ export function AppProvider({ children }) {
   const dataVersionRef = useRef(0);
   const abortControllerRef = useRef(null);
 
-  const [user, setUser] = useState({ id: 'user-sec-1', role: 'ADMIN', name: 'Financial Secretary' });
+  const [user, setUser] = useState(null);
   const [org, setOrg] = useState(DEFAULT_ORGANISATION);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [theme, setTheme] = useState('system');
@@ -233,12 +233,15 @@ export function AppProvider({ children }) {
             setOrg(authData.organisation);
             setMosqueContext(authData.organisation);
           }
-        } else if (meRes.status === 401) {
-          if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-            const redirectUrl = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
-            router.push(redirectUrl);
+        } else {
+          setUser(null);
+          if (meRes.status === 401) {
+            if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+              const redirectUrl = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+              router.push(redirectUrl);
+            }
+            return;
           }
-          return;
         }
       } catch (err) {
         reportClientError(err, { context: 'auth_init' });
@@ -390,11 +393,13 @@ export function AppProvider({ children }) {
   const handleLogout = async () => {
     try {
       clearUserContext();
+      setUser(null);
       await fetch('/api/auth/logout', { method: 'POST' });
       addToast('Signed out successfully', 'info');
       router.push('/login');
     } catch (e) {
       clearUserContext();
+      setUser(null);
       router.push('/login');
     }
   };

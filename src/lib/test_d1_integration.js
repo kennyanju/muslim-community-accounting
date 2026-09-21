@@ -334,6 +334,106 @@ async function runD1TestSuite() {
   const dryRunResult = await d1Ctrl.restoreBackup(fullBackup, true);
   testAssert(dryRunResult.success && dryRunResult.dryRun === true && dryRunResult.diff.transactionsCount > 0, 'restoreBackup(..., dryRun=true) simulated restore diff without destructive mutations');
 
+  // Test 23: Strict Shariah Compliance Rule in D1 (Rule 1 & H1)
+  try {
+    await d1Ctrl.createTransaction({
+      type: 'EXPENSE',
+      totalAmount: 200.00,
+      category: 'Salaries',
+      splits: [{ fund_id: 'fund-zakat', amount: 200.00 }],
+      notes: 'Attempting operational expense on Zakat'
+    });
+    testAssert(false, 'Should block operational expense from Zakat fund');
+  } catch (err) {
+    testAssert(err.message.includes('Strict Compliance Violation'), 'D1 strictly blocked operational expense from Zakat fund');
+  }
+
+  // Test 24: Gift Aid Eligibility Enforcement in D1 (Rule 3)
+  try {
+    await d1Ctrl.createTransaction({
+      type: 'INCOME',
+      totalAmount: 50.00,
+      giftAid: true,
+      donorId: 'anonymous',
+      splits: [{ fund_id: 'fund-lillah', amount: 50.00 }]
+    });
+    testAssert(false, 'Should block Gift Aid on anonymous donor');
+  } catch (err) {
+    testAssert(err.message.includes('Gift Aid can only be claimed'), 'D1 strictly enforced Gift Aid donor validation');
+  }
+
+  // Test 25: Interest / Riba Auto-Routing in D1 (Rule 4)
+  const ribaTx = await d1Ctrl.createTransaction({
+    type: 'INCOME',
+    totalAmount: 12.50,
+    category: 'Interest',
+    reference_note: 'Bank Interest',
+    splits: [{ fund_id: 'fund-lillah', amount: 12.50 }] // Should be auto-routed
+  });
+  testAssert(ribaTx.splits && ribaTx.splits.length === 1 && ribaTx.splits[0].fund_id === 'fund-riba', 'D1 auto-routed Interest income into Interest/Riba fund');
+
+  // Test 26: Last Active Administrator Protection in D1 (Governance)
+  try {
+    await d1Ctrl.updateUser('user-sec-1', { role: 'AUDITOR' });
+    testAssert(false, 'Should block demoting the last active administrator');
+  } catch (err) {
+    testAssert(err.message.includes('Cannot demote your own active administrator account') || err.message.includes('last active administrator'), 'D1 strictly blocked demoting or losing last active admin');
+  }
+
+  // Test 27: Dual-Key DTO Contract for Balances and Funds
+  const balances = await d1Ctrl.getBalances();
+  testAssert(balances.length > 0 && balances[0].fundId && balances[0].fundName !== undefined && typeof balances[0].isRestricted === 'boolean', 'getBalances() returns dual-key contract (fundId, fundName, isRestricted)');
+
+  // Test 28: Full Round-Trip Point-in-Time Restore with Exact Integer Pence & Budgets
+  // Create transactions with £0.01, £100.00, and £100.01
+  const tx1p = await d1Ctrl.createTransaction({
+    type: 'INCOME',
+    totalAmount: 0.01,
+    splits: [{ fund_id: 'fund-lillah', amount: 0.01 }]
+  });
+  const tx100 = await d1Ctrl.createTransaction({
+    type: 'INCOME',
+    totalAmount: 100.00,
+    splits: [{ fund_id: 'fund-lillah', amount: 100.00 }]
+  });
+  const tx10001 = await d1Ctrl.createTransaction({
+    type: 'INCOME',
+    totalAmount: 100.01,
+    splits: [{ fund_id: 'fund-lillah', amount: 100.01 }]
+  });
+
+  // Ensure a budget exists
+  await d1Ctrl.saveBudget({
+    fund_id: 'fund-building',
+    fiscal_year: 2026,
+    target_amount: 50000.00,
+    max_spend_limit: 40000.00,
+    notes: '2026 Building Target'
+  });
+
+  // Export full snapshot
+  const backupToRestore = await d1Ctrl.exportBackup();
+  testAssert(backupToRestore.budgets && backupToRestore.budgets.length > 0, 'exportBackup() includes budgets');
+
+  // Execute REAL destructive restore (not dryRun!)
+  const realRestoreResult = await d1Ctrl.restoreBackup(backupToRestore, false);
+  testAssert(realRestoreResult.success === true, 'real destructive restore executed cleanly without foreign key failures');
+
+  // Verify exact pence values after restore (no 100x multiplication)
+  const restoredTx100 = await d1Ctrl.getTransaction(tx100.id);
+  testAssert(restoredTx100.total_amount_pence === 10000, `£100.00 restored as 10000 pence (got ${restoredTx100.total_amount_pence})`);
+  testAssert(restoredTx100.totalAmount === 100, `£100.00 totalAmount restored as 100 (got ${restoredTx100.totalAmount})`);
+
+  const restoredTx1p = await d1Ctrl.getTransaction(tx1p.id);
+  testAssert(restoredTx1p.total_amount_pence === 1, `£0.01 restored as 1 pence (got ${restoredTx1p.total_amount_pence})`);
+
+  const restoredTx10001 = await d1Ctrl.getTransaction(tx10001.id);
+  testAssert(restoredTx10001.total_amount_pence === 10001, `£100.01 restored as 10001 pence (got ${restoredTx10001.total_amount_pence})`);
+
+  // Verify budgets restored
+  const restoredBudgets = await d1Ctrl.getBudgets(2026);
+  testAssert(restoredBudgets && restoredBudgets.length > 0, 'budgets successfully restored into D1');
+
   console.log("--------------------------------------------------");
   console.log(`D1 TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);
   console.log("--------------------------------------------------");

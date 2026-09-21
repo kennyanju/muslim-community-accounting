@@ -135,7 +135,7 @@ export async function GET(request) {
 
   // Server-side Pagination
   if (paginate) {
-    const { page, pageSize } = sanitizePagination(searchParams.get('page'), searchParams.get('pageSize'));
+    const { page, pageSize } = sanitizePagination(searchParams, 15, 100);
     const startIndex = (page - 1) * pageSize;
     const paginatedItems = result.slice(startIndex, startIndex + pageSize);
 

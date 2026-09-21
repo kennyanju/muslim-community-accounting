@@ -261,6 +261,24 @@ export class D1Controller {
     const role = updates.role !== undefined ? updates.role : current.role;
     const status = updates.status !== undefined ? updates.status : current.status;
 
+    // Protection against self-demotion and self-deactivation
+    if (id === this.userId) {
+      if (status === 'INACTIVE') {
+        throw new Error('Cannot deactivate your own active administrator account.');
+      }
+      if (role !== 'ADMIN') {
+        throw new Error('Cannot demote your own active administrator account.');
+      }
+    }
+
+    // Protection against losing the last active administrator
+    if (current.role === 'ADMIN' && (role !== 'ADMIN' || status === 'INACTIVE')) {
+      const activeAdmins = await db.prepare(`SELECT COUNT(*) as count FROM users WHERE role = 'ADMIN' AND status = 'ACTIVE'`).first('count');
+      if (activeAdmins <= 1) {
+        throw new Error('Cannot demote or deactivate the last active administrator.');
+      }
+    }
+
     let passwordHash = null;
     if (updates.password && updates.password.trim()) {
       if (updates.password.length < 12) {
@@ -296,6 +314,13 @@ export class D1Controller {
     const db = await this.getDb();
     const user = await this.getUserById(id);
     if (!user) throw new Error(`User not found with ID ${id}`);
+
+    if (user.role === 'ADMIN') {
+      const activeAdmins = await db.prepare(`SELECT COUNT(*) as count FROM users WHERE role = 'ADMIN' AND status = 'ACTIVE'`).first('count');
+      if (activeAdmins <= 1) {
+        throw new Error('Cannot delete the last active administrator.');
+      }
+    }
 
     await this.revokeUserSessions(id);
     await db.prepare(`DELETE FROM users WHERE id = ?`).bind(id).run();
@@ -357,12 +382,30 @@ export class D1Controller {
       SELECT id, name, is_restricted, description, is_archived, created_at, updated_at
       FROM funds ORDER BY is_archived ASC, name ASC
     `).all();
-    return res.results || [];
+    return (res.results || []).map(f => ({
+      ...f,
+      fundId: f.id,
+      fundName: f.name,
+      isRestricted: Boolean(f.is_restricted),
+      isArchived: Boolean(f.is_archived),
+      is_restricted: Boolean(f.is_restricted),
+      is_archived: Boolean(f.is_archived)
+    }));
   }
 
   async getFundById(id) {
     const db = await this.getDb();
-    return await db.prepare(`SELECT * FROM funds WHERE id = ?`).bind(id).first();
+    const f = await db.prepare(`SELECT * FROM funds WHERE id = ?`).bind(id).first();
+    if (!f) return null;
+    return {
+      ...f,
+      fundId: f.id,
+      fundName: f.name,
+      isRestricted: Boolean(f.is_restricted),
+      isArchived: Boolean(f.is_archived),
+      is_restricted: Boolean(f.is_restricted),
+      is_archived: Boolean(f.is_archived)
+    };
   }
 
   async createFund({ name, is_restricted = false, description = '' }) {
@@ -391,6 +434,21 @@ export class D1Controller {
     const current = await this.getFundById(id);
     if (!current) throw new Error(`Fund not found with ID ${id}`);
 
+    // Protection for core Islamic & Shariah funds
+    const CORE_FUNDS = ['zakat', 'fitrana', 'interest/riba', 'riba'];
+    const isCore = CORE_FUNDS.includes(current.name.toLowerCase());
+    if (isCore) {
+      if (updates.is_restricted !== undefined && (updates.is_restricted ? 1 : 0) !== current.is_restricted) {
+        throw new Error(`Strict Compliance: Core fund '${current.name}' restriction status cannot be reclassified.`);
+      }
+      if (updates.name !== undefined && updates.name.trim().toLowerCase() !== current.name.toLowerCase()) {
+        throw new Error(`Strict Compliance: Core fund '${current.name}' cannot be renamed.`);
+      }
+      if (updates.is_archived === 1 || updates.is_archived === true) {
+        throw new Error(`Strict Compliance: Core fund '${current.name}' cannot be archived.`);
+      }
+    }
+
     // Check balance before archival
     if (updates.is_archived === 1 || updates.is_archived === true) {
       const balanceRow = await db.prepare(`
@@ -404,7 +462,6 @@ export class D1Controller {
       if (balPence !== 0) {
         throw new Error(`Cannot archive fund '${current.name}' with active balance (£${(balPence / 100).toFixed(2)}). Reallocate funds first.`);
       }
-
 
       // Item #18: Check for open/incomplete Asnaf records before archival
       const incompleteAsnaf = await db.prepare(`
@@ -670,6 +727,12 @@ export class D1Controller {
       if (!splitsMap[s.transaction_id]) splitsMap[s.transaction_id] = [];
       splitsMap[s.transaction_id].push({
         ...s,
+        fundId: s.fund_id,
+        fund_id: s.fund_id,
+        fundName: s.fund_name,
+        fund_name: s.fund_name,
+        isRestricted: Boolean(s.is_restricted),
+        is_restricted: Boolean(s.is_restricted),
         amount: s.amount / 100, // display as pounds
         amount_pence: s.amount
       });
@@ -678,9 +741,14 @@ export class D1Controller {
     return transactions.map(t => ({
       ...t,
       reconciled: Boolean(t.reconciled),
+      is_reconciled: Boolean(t.reconciled),
+      isReconciled: Boolean(t.reconciled),
       is_jummah: Boolean(t.is_jummah),
+      isJummah: Boolean(t.is_jummah),
       gift_aid: Boolean(t.gift_aid),
+      giftAid: Boolean(t.gift_aid),
       total_amount: t.total_amount / 100, // display as pounds
+      totalAmount: t.total_amount / 100,
       total_amount_pence: t.total_amount,
       splits: splitsMap[t.id] || []
     }));
@@ -696,28 +764,74 @@ export class D1Controller {
     this.checkAdmin();
     const db = await this.getDb();
 
-    // Item #4: Atomic receipt counter update to eliminate race conditions
-    const orgUpdate = await db.prepare(`
-      UPDATE organisations
-      SET receipt_counter = receipt_counter + 1, updated_at = datetime('now')
-      WHERE id = 'main'
-      RETURNING receipt_counter, short_name, fiscal_year_start
-    `).first();
+    const type = (data.type || 'INCOME').toUpperCase();
+    if (type !== 'INCOME' && type !== 'EXPENSE') {
+      throw new Error(`Invalid transaction type: '${type}'. Must be INCOME or EXPENSE.`);
+    }
 
-    const counter = orgUpdate?.receipt_counter || Math.floor(Math.random() * 9000) + 1000;
-    const orgShort = orgUpdate?.short_name || 'BSMC';
-    const txDate = data.date || data.transaction_date || new Date().toISOString().split('T')[0];
-    const fiscalBounds = getFiscalYearBounds(txDate, orgUpdate?.fiscal_year_start || '04-06');
-    const receiptNumber = `${orgShort}-${fiscalBounds.startYear}-${String(counter).padStart(4, '0')}`;
-
-    const txId = `tx-${crypto.randomUUID().substring(0, 8)}`;
     const totalPence = Math.round(parseFloat(data.totalAmount || data.total_amount || 0) * 100);
+    if (isNaN(totalPence) || totalPence <= 0) {
+      throw new Error('Transaction total amount must be a positive number greater than £0.00.');
+    }
 
-    // Validate splits match total amount in pence
-    const splits = Array.isArray(data.splits) ? data.splits : [];
+    const status = (data.status || 'PENDING').toUpperCase();
+    const method = (data.method || 'CASH').toUpperCase();
+    const category = sanitizeText(data.category || (type === 'INCOME' ? 'Donation' : 'Maintenance'));
+    const donorId = data.donorId || data.donor_id || 'anonymous';
+    const refNote = sanitizeText(data.reference_note || data.referenceNote || '');
+    const notes = sanitizeText(data.notes || '');
+    const giftAid = (data.giftAid || data.gift_aid) ? 1 : 0;
+
+    // 1. Force interest (Riba) category to Interest/Riba fund
+    let rawSplits = Array.isArray(data.splits) ? [...data.splits] : [];
+    if (type === 'INCOME' && (refNote === 'Interest' || category === 'Interest' || category.toLowerCase().includes('riba'))) {
+      const ribaFund = await db.prepare(`SELECT id, name FROM funds WHERE LOWER(name) = 'interest/riba' OR LOWER(name) = 'riba'`).first();
+      if (ribaFund) {
+        rawSplits = [{ fund_id: ribaFund.id, amount: (totalPence / 100) }];
+      }
+    }
+
+    // Default split if none provided
+    if (rawSplits.length === 0) {
+      const defaultFund = await db.prepare(`SELECT id, name FROM funds WHERE is_archived = 0 AND is_restricted = 0 ORDER BY id ASC`).first();
+      if (!defaultFund) throw new Error('No active fund available for transaction split.');
+      rawSplits = [{ fund_id: defaultFund.id, amount: (totalPence / 100) }];
+    }
+
+    // Check unique fund IDs in splits
+    const fundIdSet = new Set();
+    for (const s of rawSplits) {
+      if (!s.fund_id) throw new Error('Each split must specify a fund_id.');
+      if (fundIdSet.has(s.fund_id)) {
+        throw new Error('Duplicate fund detected in transaction splits. Each fund split must be unique.');
+      }
+      fundIdSet.add(s.fund_id);
+    }
+
+    // Validate funds exist and are not archived
+    const fundPlaceholders = Array.from(fundIdSet).map(() => '?').join(',');
+    const fundsRes = await db.prepare(`
+      SELECT id, name, is_restricted, is_archived FROM funds WHERE id IN (${fundPlaceholders})
+    `).bind(...Array.from(fundIdSet)).all();
+    const fundMap = new Map((fundsRes.results || []).map(f => [f.id, f]));
+
+    for (const s of rawSplits) {
+      const fund = fundMap.get(s.fund_id);
+      if (!fund) {
+        throw new Error(`Fund with ID '${s.fund_id}' not found.`);
+      }
+      if (fund.is_archived) {
+        throw new Error(`Cannot allocate to archived fund '${fund.name}'.`);
+      }
+    }
+
+    // Validate split amounts match total amount in pence
     let splitSumPence = 0;
-    const validatedSplits = splits.map(s => {
+    const validatedSplits = rawSplits.map(s => {
       const p = Math.round(parseFloat(s.amount || 0) * 100);
+      if (isNaN(p) || p <= 0) {
+        throw new Error('Split amount must be greater than £0.00.');
+      }
       splitSumPence += p;
       return {
         id: `split-${crypto.randomUUID().substring(0, 8)}`,
@@ -726,22 +840,57 @@ export class D1Controller {
       };
     });
 
-    if (validatedSplits.length > 0 && splitSumPence !== totalPence) {
+    if (splitSumPence !== totalPence) {
       throw new Error(`Allocated splits (£${(splitSumPence / 100).toFixed(2)}) must exactly match total amount (£${(totalPence / 100).toFixed(2)}).`);
     }
 
-    // Item #12: First-class Jummah collection tracking
-    const isJummah = (data.is_jummah ? 1 : 0) ||
-      ((data.category?.toLowerCase().includes('jummah') || data.reference_note?.toLowerCase().includes('jummah')) ? 1 : 0);
+    // Strict Shariah Compliance Rule (Restricted funds Zakat / Fitrana can ONLY be spent on Charitable Payout)
+    if (type === 'EXPENSE') {
+      for (const s of validatedSplits) {
+        const fund = fundMap.get(s.fund_id);
+        if (fund && fund.is_restricted && (fund.name.toLowerCase() === 'zakat' || fund.name.toLowerCase() === 'fitrana')) {
+          if (category !== 'Charitable Payout') {
+            throw new Error(`Strict Compliance Violation: Restricted funds (${fund.name}) can only be disbursed under the 'Charitable Payout' category to eligible beneficiaries (Asnaf). Found category: '${category}'.`);
+          }
+          if (!notes || !notes.trim()) {
+            throw new Error(`Zakat and Fitrana disbursements require detailed beneficiary (Asnaf) notes for auditing purposes.`);
+          }
+        }
+      }
+    }
 
-    const type = (data.type || 'INCOME').toUpperCase();
-    const status = (data.status || 'PENDING').toUpperCase();
-    const method = (data.method || 'CASH').toUpperCase();
-    const category = sanitizeText(data.category || (type === 'INCOME' ? 'Donation' : 'Maintenance'));
-    const donorId = data.donorId || data.donor_id || 'anonymous';
-    const refNote = sanitizeText(data.reference_note || data.referenceNote || '');
-    const notes = sanitizeText(data.notes || '');
-    const giftAid = (data.giftAid || data.gift_aid) ? 1 : 0;
+    // Gift Aid Constraint
+    if (type === 'INCOME' && giftAid) {
+      if (!donorId || donorId === 'anonymous') {
+        throw new Error('Gift Aid can only be claimed if a named donor is specified.');
+      }
+      const donor = await db.prepare(`SELECT * FROM donors WHERE id = ?`).bind(donorId).first();
+      if (!donor || !donor.gift_aid_eligible || !donor.address_line_1 || !donor.postcode) {
+        throw new Error('Gift Aid can only be claimed if the donor profile has a signed declaration and a valid UK address.');
+      }
+    }
+
+    // Generate atomic receipt number for INCOME only
+    let receiptNumber = '';
+    const txDate = data.date || data.transaction_date || new Date().toISOString().split('T')[0];
+
+    if (type === 'INCOME') {
+      const orgUpdate = await db.prepare(`
+        UPDATE organisations
+        SET receipt_counter = receipt_counter + 1, updated_at = datetime('now')
+        WHERE id = 'main'
+        RETURNING receipt_counter, short_name, fiscal_year_start
+      `).first();
+
+      const counter = orgUpdate?.receipt_counter || Math.floor(Math.random() * 9000) + 1000;
+      const orgShort = orgUpdate?.short_name || 'BSMC';
+      const fiscalBounds = getFiscalYearBounds(txDate, orgUpdate?.fiscal_year_start || '04-06');
+      receiptNumber = `${orgShort}-${fiscalBounds.startYear}-${String(counter).padStart(4, '0')}`;
+    }
+
+    const txId = `tx-${crypto.randomUUID().substring(0, 8)}`;
+    const isJummah = (data.is_jummah ? 1 : 0) ||
+      ((category?.toLowerCase().includes('jummah') || refNote?.toLowerCase().includes('jummah')) ? 1 : 0);
 
     // Atomic D1 batch statement execution
     const batchStatements = [
@@ -878,8 +1027,13 @@ export class D1Controller {
 
     const balances = (res.results || []).map(r => ({
       id: r.id,
+      fundId: r.id,
       name: r.name,
+      fundName: r.name,
       is_restricted: Boolean(r.is_restricted),
+      isRestricted: Boolean(r.is_restricted),
+      is_archived: false,
+      isArchived: false,
       balance: r.balance_pence / 100,
       balance_pence: r.balance_pence
     }));
@@ -1155,19 +1309,29 @@ export class D1Controller {
     // Step 1: Create snapshot before executing destructive restore
     const snapshotId = await this.createBackupSnapshot('Automated snapshot before restore');
 
-    // Step 2: Atomic restoration
+    // Step 2: Atomic restoration - respecting foreign keys (budgets before funds)
     const clearStatements = [
       db.prepare(`DELETE FROM transaction_splits`),
       db.prepare(`DELETE FROM asnaf_records`),
       db.prepare(`DELETE FROM transactions`),
-      db.prepare(`DELETE FROM donors`),
-      db.prepare(`DELETE FROM funds`),
       db.prepare(`DELETE FROM budgets`),
+      db.prepare(`DELETE FROM funds`),
+      db.prepare(`DELETE FROM donors`),
+      db.prepare(`DELETE FROM audit_logs`),
       db.prepare(`DELETE FROM users`)
     ];
     await db.batch(clearStatements);
 
     // Step 3: Populate from backup
+    const isV2 = backupData.version === '2.0-d1-integer-cents';
+    const toIntegerPence = (val) => {
+      if (val === null || val === undefined) return 0;
+      if (isV2 && typeof val === 'number' && Number.isInteger(val)) {
+        return val;
+      }
+      return Math.round(parseFloat(val || 0) * 100);
+    };
+
     const insertStatements = [];
 
     if (Array.isArray(backupData.users)) {
@@ -1209,11 +1373,33 @@ export class D1Controller {
       });
     }
 
+    if (Array.isArray(backupData.budgets)) {
+      backupData.budgets.forEach(b => {
+        const targetPence = toIntegerPence(b.target_amount);
+        const maxSpendPence = b.max_spend_limit !== null && b.max_spend_limit !== undefined
+          ? toIntegerPence(b.max_spend_limit)
+          : null;
+
+        insertStatements.push(
+          db.prepare(`
+            INSERT INTO budgets (id, fund_id, fiscal_year, target_amount, max_spend_limit, notes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            b.id || `bud-${crypto.randomUUID().substring(0, 8)}`,
+            b.fund_id,
+            parseInt(b.fiscal_year, 10),
+            targetPence,
+            maxSpendPence,
+            b.notes || '',
+            b.created_at || new Date().toISOString()
+          )
+        );
+      });
+    }
+
     if (Array.isArray(backupData.transactions)) {
       backupData.transactions.forEach(t => {
-        const amountPence = typeof t.total_amount === 'number' && t.total_amount > 10000 && !t.total_amount.toString().includes('.')
-          ? t.total_amount // already integer pence
-          : Math.round(parseFloat(t.total_amount || 0) * 100);
+        const amountPence = toIntegerPence(t.total_amount);
 
         insertStatements.push(
           db.prepare(`
@@ -1237,9 +1423,7 @@ export class D1Controller {
 
     if (Array.isArray(backupData.transaction_splits)) {
       backupData.transaction_splits.forEach(s => {
-        const amountPence = typeof s.amount === 'number' && s.amount > 10000 && !s.amount.toString().includes('.')
-          ? s.amount
-          : Math.round(parseFloat(s.amount || 0) * 100);
+        const amountPence = toIntegerPence(s.amount);
 
         insertStatements.push(
           db.prepare(`INSERT INTO transaction_splits (id, transaction_id, fund_id, amount, is_voided, created_at) VALUES (?, ?, ?, ?, ?, ?)`).bind(
@@ -1251,9 +1435,7 @@ export class D1Controller {
 
     if (Array.isArray(backupData.asnaf_records)) {
       backupData.asnaf_records.forEach(a => {
-        const amountPence = typeof a.amount === 'number' && a.amount > 10000 && !a.amount.toString().includes('.')
-          ? a.amount
-          : Math.round(parseFloat(a.amount || 0) * 100);
+        const amountPence = toIntegerPence(a.amount);
 
         insertStatements.push(
           db.prepare(`
@@ -1263,6 +1445,27 @@ export class D1Controller {
             a.id, a.transaction_id, a.beneficiary_name, a.asnaf_category, amountPence,
             a.distribution_date || new Date().toISOString().split('T')[0],
             a.witness_name || '', a.verification_notes || '', a.created_at || new Date().toISOString()
+          )
+        );
+      });
+    }
+
+    if (Array.isArray(backupData.audit_logs)) {
+      backupData.audit_logs.forEach(a => {
+        insertStatements.push(
+          db.prepare(`
+            INSERT INTO audit_logs (id, table_name, record_id, action, user_id, user_email, user_name, metadata, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            a.id || `aud-${crypto.randomUUID()}`,
+            a.table_name,
+            a.record_id,
+            a.action,
+            a.user_id || null,
+            a.user_email || null,
+            a.user_name || null,
+            typeof a.metadata === 'string' ? a.metadata : JSON.stringify(a.metadata || {}),
+            a.timestamp || new Date().toISOString()
           )
         );
       });
