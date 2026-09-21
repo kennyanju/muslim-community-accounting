@@ -168,31 +168,42 @@ export async function checkAndDispatchNotifications(transaction, dbOrController)
 
         const zakatBalance = (balanceRow?.balance_pence || 0) / 100;
 
-        // Low Zakat Reserve Alert on Expense
+        // Low Zakat Reserve Alert on Expense - Deduplicated against existing unread alerts
         if (transaction.type === 'EXPENSE' && zakatBalance < zakatMinReserve) {
-          alerts.push({
-            id: `notif-${crypto.randomUUID().substring(0, 8)}`,
-            type: 'LOW_ZAKAT_RESERVE',
-            severity: 'WARNING',
-            message: `Zakat reserve has reached a low balance of ${currency}${zakatBalance.toFixed(2)}. Consider launching an appeal for local Asnaf families.`,
-            transaction_id: transaction.id
-          });
+          const existingUnread = await d1.prepare(`
+            SELECT id FROM notifications WHERE type = 'LOW_ZAKAT_RESERVE' AND read_at IS NULL LIMIT 1
+          `).first();
+          if (!existingUnread) {
+            alerts.push({
+              id: `notif-${crypto.randomUUID().substring(0, 8)}`,
+              type: 'LOW_ZAKAT_RESERVE',
+              severity: 'WARNING',
+              message: `Zakat reserve has reached a low balance of ${currency}${zakatBalance.toFixed(2)}. Consider launching an appeal for local Asnaf families.`,
+              transaction_id: transaction.id
+            });
+          }
         }
 
-        // Zakat Surplus Alert on Income
+        // Zakat Surplus Alert on Income - Deduplicated against existing unread alerts
         if (transaction.type === 'INCOME' && zakatBalance >= zakatSurplusThreshold) {
-          alerts.push({
-            id: `notif-${crypto.randomUUID().substring(0, 8)}`,
-            type: 'ZAKAT_SURPLUS',
-            severity: 'INFO',
-            message: `Zakat balance is at ${currency}${zakatBalance.toFixed(2)} (exceeds surplus threshold of ${currency}${zakatSurplusThreshold.toFixed(2)}). Please schedule Asnaf disbursements.`,
-            transaction_id: transaction.id
-          });
+          const existingUnread = await d1.prepare(`
+            SELECT id FROM notifications WHERE type = 'ZAKAT_SURPLUS' AND read_at IS NULL LIMIT 1
+          `).first();
+          if (!existingUnread) {
+            alerts.push({
+              id: `notif-${crypto.randomUUID().substring(0, 8)}`,
+              type: 'ZAKAT_SURPLUS',
+              severity: 'INFO',
+              message: `Zakat balance is at ${currency}${zakatBalance.toFixed(2)} (exceeds surplus threshold of ${currency}${zakatSurplusThreshold.toFixed(2)}). Please schedule Asnaf disbursements.`,
+              transaction_id: transaction.id
+            });
+          }
         }
       }
     } catch (e) {
       logger.error('Failed to compute Zakat balance via SQL in notifications:', { error: e.message });
     }
+
   }
 
   // Persist alerts into D1 notifications table (Item #14)

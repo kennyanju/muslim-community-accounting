@@ -178,10 +178,20 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE TABLE IF NOT EXISTS backup_snapshots (
   id TEXT PRIMARY KEY,
   description TEXT,
+
   snapshot_data TEXT NOT NULL, -- Full JSON dump
   created_by TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- 14. Processed Webhook Events (Idempotency)
+CREATE TABLE IF NOT EXISTS processed_webhook_events (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 
 -- ==============================================================================
 -- Indexes for High-Performance Queries & Reporting
@@ -218,3 +228,4 @@ CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at
 CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read_at);
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_created ON backup_snapshots(created_at);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_provider ON processed_webhook_events(provider);

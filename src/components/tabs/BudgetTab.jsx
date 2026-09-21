@@ -172,9 +172,11 @@ export default function BudgetTab() {
           const currentBalance = fundBal ? fundBal.balance : 0;
           const target = budget ? budget.target_amount : 0;
           const limit = budget ? budget.max_spend_limit : null;
+          const periodSpend = budget ? (budget.periodSpend || 0) : 0;
+          const periodIncome = budget ? (budget.periodIncome || 0) : 0;
 
-          const progressPercent = target > 0 ? Math.min(100, Math.max(0, Math.round((currentBalance / target) * 100))) : 0;
-          const isOverLimit = limit !== null && limit > 0 && Math.abs(currentBalance) > limit;
+          const progressPercent = target > 0 ? Math.min(100, Math.max(0, Math.round((periodIncome / target) * 100))) : 0;
+          const isOverLimit = limit !== null && limit > 0 && periodSpend > limit;
 
           return (
             <div key={fund.id} className="glass-card" style={{ padding: '20px', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -204,44 +206,56 @@ export default function BudgetTab() {
                 )}
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
                   <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Current Balance</span>
-                  <span style={{ fontSize: '1.25rem', fontWeight: 700, color: currentBalance >= 0 ? 'var(--text-primary)' : 'var(--danger)' }}>
+                  <span style={{ fontSize: '1.15rem', fontWeight: 700, color: currentBalance >= 0 ? 'var(--text-primary)' : 'var(--danger)' }}>
                     {formatCurrency(currentBalance, org.currency_symbol)}
                   </span>
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block' }}>Annual Target</span>
-                  <span style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--primary)' }}>
+                  <span style={{ fontSize: '1.15rem', fontWeight: 600, color: 'var(--primary)' }}>
                     {target > 0 ? formatCurrency(target, org.currency_symbol) : 'Not Set'}
                   </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', padding: '8px 12px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)', fontSize: '12px' }}>
+                <div>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '10px' }}>FY {selectedYear} Income</span>
+                  <span style={{ fontWeight: 600, color: 'var(--success)' }}>+{formatCurrency(periodIncome, org.currency_symbol)}</span>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '10px' }}>FY {selectedYear} Spend</span>
+                  <span style={{ fontWeight: 600, color: isOverLimit ? 'var(--danger)' : 'var(--text-primary)' }}>{formatCurrency(periodSpend, org.currency_symbol)}</span>
                 </div>
               </div>
 
               {/* Progress bar */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '6px', color: 'var(--text-secondary)' }}>
-                  <span>Progress to Target</span>
+                  <span>Income Progress to Target</span>
                   <span>{target > 0 ? `${progressPercent}%` : 'No Target'}</span>
                 </div>
                 <div style={{ width: '100%', height: '8px', background: 'var(--bg-primary)', borderRadius: '4px', overflow: 'hidden' }}>
                   <div 
                     style={{ 
-                      width: `${progressPercent}%`, 
-                      height: '100%', 
-                      background: isOverLimit ? 'var(--danger)' : 'var(--primary)', 
-                      borderRadius: '4px',
-                      transition: 'width 0.4s ease'
-                    }} 
-                  />
-                </div>
+                    width: `${progressPercent}%`, 
+                    height: '100%', 
+                    background: 'var(--primary)', 
+                    borderRadius: '4px',
+                    transition: 'width 0.4s ease'
+                  }} 
+                />
               </div>
+            </div>
 
               {limit !== null && limit > 0 && (
                 <div style={{ fontSize: '12px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', background: isOverLimit ? 'var(--danger-light)' : 'var(--bg-subtle)', color: isOverLimit ? 'var(--danger)' : 'var(--text-secondary)' }}>
                   {isOverLimit ? '⚠️ Over Maximum Spend Limit: ' : 'Spend Cap: '}
                   <strong>{formatCurrency(limit, org.currency_symbol)}</strong>
+                  <span style={{ fontSize: '11px', marginLeft: '6px' }}>({formatCurrency(periodSpend, org.currency_symbol)} spent)</span>
                 </div>
               )}
 
@@ -253,6 +267,7 @@ export default function BudgetTab() {
             </div>
           );
         })}
+
       </div>
 
       {/* Edit Budget Modal */}

@@ -15,13 +15,16 @@ export async function GET(request) {
 
   try {
     const controller = new D1Controller(user.role, user.id, user.name, user.email);
+    const db = await controller.getDb();
     const notifications = await controller.getNotifications(unreadOnly, limit);
-    const unreadCount = notifications.filter(n => !n.read_at).length;
+    const totalUnreadRow = await db.prepare(`SELECT COUNT(*) as count FROM notifications WHERE read_at IS NULL`).first();
+    const unreadCount = totalUnreadRow?.count || 0;
 
     return NextResponse.json({
       notifications,
       unreadCount
     }, { status: 200 });
+
   } catch (err) {
     return apiError(err.message, 500);
   }

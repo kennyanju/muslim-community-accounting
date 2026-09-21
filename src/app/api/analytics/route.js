@@ -22,14 +22,14 @@ export async function GET(request) {
 
     const { searchParams } = new URL(request.url);
     const fiscalYearParam = searchParams.get('fiscal_year');
-    const fyBounds = getFiscalYearBounds(new Date(), org.fiscal_year_start || '04-06');
-    const activeStartDate = fiscalYearParam ? `${fiscalYearParam}-${org.fiscal_year_start || '04-06'}` : fyBounds.startDate;
-    const activeEndDate = fiscalYearParam ? `${parseInt(fiscalYearParam, 10) + 1}-${org.fiscal_year_start || '04-06'}` : fyBounds.endDate;
+    const fyBounds = getFiscalYearBounds(fiscalYearParam || new Date(), org.fiscal_year_start || '04-06');
+    const activeStartDate = fyBounds.startDate;
+    const activeEndDate = fyBounds.endDate;
 
     const transactions = await controller.getTransactions();
     const funds = await controller.getFunds();
     const donors = await controller.getDonors();
-    const asnafRecords = await controller.getAsnafRecords();
+    const asnafRecords = await controller.getAsnafRecords(fiscalYearParam);
 
     // Fast O(1) transaction lookup map to resolve O(N^2) issue (Item #17)
     const txMap = new Map(transactions.map(t => [t.id, t]));
@@ -66,19 +66,23 @@ export async function GET(request) {
         m.count += 1;
       }
 
-      // Category breakdown
-      const cat = tx.category || (tx.type === 'INCOME' ? 'Donation' : 'General');
-      categoryMap[cat] = (categoryMap[cat] || 0) + amt;
+      // Scope annual breakdown metrics to active fiscal year
+      const inFiscalYear = (!tx.transaction_date || (tx.transaction_date >= activeStartDate && tx.transaction_date <= activeEndDate));
+      if (inFiscalYear) {
+        // Category breakdown
+        const cat = tx.category || (tx.type === 'INCOME' ? 'Donation' : 'General');
+        categoryMap[cat] = (categoryMap[cat] || 0) + amt;
 
-      // Gift aid
-      if (tx.type === 'INCOME' && tx.gift_aid) {
-        totalGiftAidEligible += amt;
-      }
+        // Gift aid
+        if (tx.type === 'INCOME' && tx.gift_aid) {
+          totalGiftAidEligible += amt;
+        }
 
-      // Jummah collection - first-class tracking (Item #12)
-      if (tx.is_jummah === 1 || tx.is_jummah === true) {
-        totalJummahAmount += amt;
-        jummahCount++;
+        // Jummah collection - first-class tracking (Item #12)
+        if (tx.is_jummah === 1 || tx.is_jummah === true) {
+          totalJummahAmount += amt;
+          jummahCount++;
+        }
       }
     });
 
@@ -95,6 +99,7 @@ export async function GET(request) {
         if (s.is_voided || s.fund_id !== zakatFund.id) return;
         const tx = txMap.get(s.transaction_id);
         if (!tx || tx.status === 'VOIDED' || tx.status === 'FAILED') return;
+        if (tx.transaction_date < activeStartDate || tx.transaction_date > activeEndDate) return;
         const sAmt = parseFloat(s.amount) || 0;
         if (tx.type === 'INCOME') zakatCollected += sAmt;
         else zakatDisbursed += sAmt;
@@ -109,11 +114,13 @@ export async function GET(request) {
         if (s.is_voided || s.fund_id !== ribaFund.id) return;
         const tx = txMap.get(s.transaction_id);
         if (!tx || tx.status === 'VOIDED' || tx.status === 'FAILED') return;
+        if (tx.transaction_date < activeStartDate || tx.transaction_date > activeEndDate) return;
         const sAmt = parseFloat(s.amount) || 0;
         if (tx.type === 'INCOME') ribaPending += sAmt;
         else ribaPending -= sAmt;
       });
     }
+
 
     // Asnaf distribution breakdown
     const asnafBreakdown = {};

@@ -371,18 +371,20 @@ export function splitDonorName(fullName) {
  * @returns {{ startYear: number, endYear: number, startDate: string, endDate: string, label: string, fiscalYear: number }}
  */
 export function getFiscalYearBounds(targetDate = new Date(), startMMDD = '04-06') {
-  const d = typeof targetDate === 'string' ? new Date(targetDate) : (targetDate instanceof Date ? targetDate : new Date());
-  const year = isNaN(d.getFullYear()) ? new Date().getFullYear() : d.getFullYear();
   const [startMonth, startDay] = startMMDD.split('-').map(n => parseInt(n, 10));
-
-  // Date of start of fiscal year in current calendar year
-  const startThisYear = new Date(Date.UTC(year, startMonth - 1, startDay, 0, 0, 0));
-
   let startYear;
-  if (d < startThisYear) {
-    startYear = year - 1;
+
+  if (typeof targetDate === 'number' || (typeof targetDate === 'string' && /^\d{4}$/.test(targetDate.trim()))) {
+    startYear = parseInt(targetDate, 10);
   } else {
-    startYear = year;
+    const d = typeof targetDate === 'string' ? new Date(targetDate) : (targetDate instanceof Date ? targetDate : new Date());
+    const year = isNaN(d.getFullYear()) ? new Date().getFullYear() : d.getFullYear();
+    const startThisYear = new Date(Date.UTC(year, startMonth - 1, startDay, 0, 0, 0));
+    if (d < startThisYear) {
+      startYear = year - 1;
+    } else {
+      startYear = year;
+    }
   }
 
   const endYear = startYear + 1;

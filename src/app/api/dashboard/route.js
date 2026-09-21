@@ -24,9 +24,9 @@ export async function GET(request) {
     // Item #25: Fiscal Year Scoping (UK Charity year default April 6 - April 5)
     const { searchParams } = new URL(request.url);
     const fiscalYearParam = searchParams.get('fiscal_year');
-    const fyBounds = getFiscalYearBounds(new Date(), org.fiscal_year_start || '04-06');
-    const activeStartDate = fiscalYearParam ? `${fiscalYearParam}-${org.fiscal_year_start || '04-06'}` : fyBounds.startDate;
-    const activeEndDate = fiscalYearParam ? `${parseInt(fiscalYearParam, 10) + 1}-${org.fiscal_year_start || '04-06'}` : fyBounds.endDate;
+    const fyBounds = getFiscalYearBounds(fiscalYearParam || new Date(), org.fiscal_year_start || '04-06');
+    const activeStartDate = fyBounds.startDate;
+    const activeEndDate = fyBounds.endDate;
 
     const allTransactions = await controller.getTransactions();
 
@@ -45,7 +45,7 @@ export async function GET(request) {
       const amt = parseFloat(t.total_amount) || 0;
       if (t.type === 'INCOME') {
         totalIncome += amt;
-        if (t.status === 'PENDING') {
+        if (t.method === 'CASH' && t.status === 'PENDING') {
           pendingCashAmount += amt;
           pendingCashCount++;
         }
@@ -56,6 +56,7 @@ export async function GET(request) {
         totalExpense += amt;
       }
     });
+
 
     const netAssets = totalIncome - totalExpense;
 

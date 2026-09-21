@@ -29,6 +29,16 @@ export async function POST(request) {
     const event = JSON.parse(rawBody);
     logger.info('Stripe webhook event verified and received', { type: event.type, id: event.id });
 
+    const controller = new D1Controller('ADMIN', 'system-stripe-webhook');
+    const db = await controller.getDb();
+
+    // Idempotency: Prevent duplicate donation entries on webhook retries
+    const existingEvent = await db.prepare(`SELECT id FROM processed_webhook_events WHERE id = ?`).bind(event.id).first();
+    if (existingEvent) {
+      logger.info('Duplicate Stripe webhook event ignored', { id: event.id });
+      return apiSuccess({ received: true, deduplicated: true }, { message: 'Event already processed' });
+    }
+
     // Handle payment_intent.succeeded or checkout.session.completed
     if (event.type === 'checkout.session.completed' || event.type === 'payment_intent.succeeded') {
       const paymentData = event.data?.object || {};
@@ -36,15 +46,17 @@ export async function POST(request) {
       const metadata = paymentData.metadata || {};
 
       if (amount > 0) {
-        const controller = new D1Controller('ADMIN', 'system-stripe-webhook');
         const fundId = metadata.fund_id || 'fund-lillah';
+        const eventDate = event.created
+          ? new Date(event.created * 1000).toISOString().substring(0, 10)
+          : new Date().toISOString().substring(0, 10);
         
         await controller.createTransaction({
           type: 'INCOME',
-          status: 'PENDING',
+          status: 'BANKED',
           method: 'CARD',
           totalAmount: amount,
-          date: new Date().toISOString().substring(0, 10),
+          date: eventDate,
           reference_note: metadata.description || `Online Donation (Stripe: ${event.id})`,
           category: metadata.category || 'Donation',
           giftAid: metadata.gift_aid === 'true' || metadata.gift_aid === true,
@@ -56,10 +68,17 @@ export async function POST(request) {
       }
     }
 
+    // Record processed event to guarantee idempotency
+    await db.prepare(`
+      INSERT INTO processed_webhook_events (id, provider, event_type, created_at)
+      VALUES (?, 'stripe', ?, datetime('now'))
+    `).bind(event.id, event.type).run();
+
     return apiSuccess({ received: true }, { message: 'Webhook event processed successfully' });
   } catch (err) {
     logger.error('Error processing webhook event', { error: err.message });
     return apiError(err.message, 400, { code: 'WEBHOOK_PROCESSING_ERROR' });
   }
 }
+
 

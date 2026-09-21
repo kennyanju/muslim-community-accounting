@@ -498,6 +498,113 @@ export class D1Controller {
     return await this.updateFund(id, { is_archived: 1 });
   }
 
+  async transferFund({ fromFundId, toFundId, from_fund_id, to_fund_id, amount, reason, date }) {
+    this.checkAdmin();
+    const sourceId = fromFundId || from_fund_id;
+    const targetId = toFundId || to_fund_id;
+    if (!sourceId || !targetId) {
+      throw new Error('Both source and destination fund IDs are required.');
+    }
+    if (sourceId === targetId) {
+      throw new Error('Cannot transfer funds to the same fund.');
+    }
+    const amountPence = Math.round(parseFloat(amount || 0) * 100);
+    if (isNaN(amountPence) || amountPence <= 0) {
+      throw new Error('Transfer amount must be greater than zero.');
+    }
+
+    const db = await this.getDb();
+    const sourceFund = await this.getFundById(sourceId);
+    if (!sourceFund) throw new Error(`Source fund not found with ID ${sourceId}`);
+    if (sourceFund.isArchived) throw new Error(`Cannot transfer from archived fund '${sourceFund.name}'.`);
+
+    const targetFund = await this.getFundById(targetId);
+    if (!targetFund) throw new Error(`Destination fund not found with ID ${targetId}`);
+    if (targetFund.isArchived) throw new Error(`Cannot transfer to archived fund '${targetFund.name}'.`);
+
+    // Strict Charity Commission & Islamic Jurisprudence Rule:
+    // Restricted funds cannot be repurposed / transferred to unrestricted funds.
+    if (sourceFund.isRestricted && !targetFund.isRestricted) {
+      throw new Error(`Strict Compliance: Cannot transfer from restricted fund '${sourceFund.name}' to unrestricted fund '${targetFund.name}'.`);
+    }
+
+    // If source fund is Zakat or Fitrana, it cannot be transferred to a non-Zakat fund
+    const isSourceZakat = sourceFund.name.toLowerCase().includes('zakat') || sourceFund.name.toLowerCase().includes('fitrana');
+    const isTargetZakat = targetFund.name.toLowerCase().includes('zakat') || targetFund.name.toLowerCase().includes('fitrana');
+    if (isSourceZakat && !isTargetZakat) {
+      throw new Error(`Strict Shariah Compliance: Zakat/Fitrana funds cannot be reallocated to non-Zakat fund '${targetFund.name}'.`);
+    }
+
+    // Check source fund balance
+    const balanceRow = await db.prepare(`
+      SELECT COALESCE(SUM(CASE WHEN t.type = 'INCOME' THEN s.amount ELSE -s.amount END), 0) as balance_pence
+      FROM transaction_splits s
+      JOIN transactions t ON t.id = s.transaction_id AND t.status NOT IN ('VOIDED', 'FAILED')
+      WHERE s.fund_id = ? AND s.is_voided = 0
+    `).bind(sourceId).first();
+
+    const sourceBalancePence = balanceRow?.balance_pence || 0;
+    if (sourceBalancePence < amountPence) {
+      throw new Error(`Insufficient balance in source fund '${sourceFund.name}' (£${(sourceBalancePence / 100).toFixed(2)}) for transfer of £${(amountPence / 100).toFixed(2)}.`);
+    }
+
+    const transferDate = date || new Date().toISOString().substring(0, 10);
+    const cleanReason = sanitizeText(reason || `Inter-fund transfer from ${sourceFund.name} to ${targetFund.name}`);
+    const outTxId = `tx-${crypto.randomUUID().substring(0, 8)}`;
+    const inTxId = `tx-${crypto.randomUUID().substring(0, 8)}`;
+
+    const batch = [
+      // Outgoing leg from source fund
+      db.prepare(`
+        INSERT INTO transactions (
+          id, receipt_number, type, status, total_amount, method, category,
+          reference_note, transaction_date, bank_statement_ref, reconciled,
+          gift_aid, created_by, created_at, updated_at
+        ) VALUES (?, ?, 'EXPENSE', 'BANKED', ?, 'BANK_TRANSFER', 'Other', ?, ?, ?, 0, 0, ?, datetime('now'), datetime('now'))
+      `).bind(outTxId, `TR-OUT-${outTxId.substring(3)}`, amountPence, cleanReason, transferDate, `TRANSFER:${inTxId}`, this.userId),
+      db.prepare(`
+        INSERT INTO transaction_splits (id, transaction_id, fund_id, amount, is_voided, created_at)
+        VALUES (?, ?, ?, ?, 0, datetime('now'))
+      `).bind(`spl-${crypto.randomUUID().substring(0, 8)}`, outTxId, sourceId, amountPence),
+
+      // Incoming leg to destination fund
+      db.prepare(`
+        INSERT INTO transactions (
+          id, receipt_number, type, status, total_amount, method, category,
+          reference_note, transaction_date, bank_statement_ref, reconciled,
+          gift_aid, created_by, created_at, updated_at
+        ) VALUES (?, ?, 'INCOME', 'BANKED', ?, 'BANK_TRANSFER', 'Other', ?, ?, ?, 0, 0, ?, datetime('now'), datetime('now'))
+      `).bind(inTxId, `TR-IN-${inTxId.substring(3)}`, amountPence, cleanReason, transferDate, `TRANSFER:${outTxId}`, this.userId),
+      db.prepare(`
+        INSERT INTO transaction_splits (id, transaction_id, fund_id, amount, is_voided, created_at)
+        VALUES (?, ?, ?, ?, 0, datetime('now'))
+      `).bind(`spl-${crypto.randomUUID().substring(0, 8)}`, inTxId, targetId, amountPence)
+    ];
+
+    await db.batch(batch);
+    invalidateBalanceCache();
+
+    await this.logAudit('funds', sourceId, 'TRANSFER', {
+      from_fund_id: sourceId,
+      to_fund_id: targetId,
+      amount: amountPence / 100,
+      reason: cleanReason,
+      expense_tx_id: outTxId,
+      income_tx_id: inTxId
+    });
+
+    return {
+      success: true,
+      from_fund: sourceFund,
+      to_fund: targetFund,
+      amount: amountPence / 100,
+      date: transferDate,
+      outTxId,
+      inTxId
+    };
+  }
+
+
 
   // -------------------------------------------------------------
   // DONORS & HMRC GIFT AID (Item #16)
@@ -507,11 +614,11 @@ export class D1Controller {
     const res = await db.prepare(`SELECT * FROM donors ORDER BY name ASC`).all();
     const donors = res.results || [];
 
-    // Aggregate giving totals per donor in a single fast query
+    // Aggregate giving totals per donor in a single fast query (only posted INCOME)
     const totalsRes = await db.prepare(`
       SELECT donor_id, SUM(total_amount) as total_pence, COUNT(*) as tx_count
       FROM transactions
-      WHERE status NOT IN ('VOIDED', 'FAILED') AND donor_id IS NOT NULL
+      WHERE status NOT IN ('VOIDED', 'FAILED') AND type = 'INCOME' AND donor_id IS NOT NULL
       GROUP BY donor_id
     `).all();
 
@@ -536,7 +643,7 @@ export class D1Controller {
     if (!donor) return null;
 
     const txsRes = await db.prepare(`
-      SELECT * FROM transactions WHERE donor_id = ? AND status NOT IN ('VOIDED', 'FAILED')
+      SELECT * FROM transactions WHERE donor_id = ? AND type = 'INCOME' AND status NOT IN ('VOIDED', 'FAILED')
       ORDER BY transaction_date DESC
     `).bind(id).all();
 
@@ -550,10 +657,12 @@ export class D1Controller {
     return {
       ...donor,
       total_donated: totalPence / 100,
+      total_donations: totalPence / 100,
       donation_count: history.length,
       giving_history: history
     };
   }
+
 
   async createDonor(data) {
     this.checkAdmin();
@@ -852,12 +961,14 @@ export class D1Controller {
           if (category !== 'Charitable Payout') {
             throw new Error(`Strict Compliance Violation: Restricted funds (${fund.name}) can only be disbursed under the 'Charitable Payout' category to eligible beneficiaries (Asnaf). Found category: '${category}'.`);
           }
-          if (!notes || !notes.trim()) {
+          const auditNote = refNote || notes;
+          if (!auditNote || !auditNote.trim()) {
             throw new Error(`Zakat and Fitrana disbursements require detailed beneficiary (Asnaf) notes for auditing purposes.`);
           }
         }
       }
     }
+
 
     // Gift Aid Constraint
     if (type === 'INCOME' && giftAid) {
@@ -929,10 +1040,15 @@ export class D1Controller {
   async reconcileTransaction(id, options = {}) {
     const bankStatementRef = typeof options === 'string' ? options : (options?.bankStatementRef || '');
     this.checkAdmin();
+    if (!bankStatementRef || !bankStatementRef.trim()) {
+      throw new Error('A valid bank statement reference is required for reconciliation.');
+    }
     const db = await this.getDb();
     const tx = await db.prepare(`SELECT * FROM transactions WHERE id = ?`).bind(id).first();
     if (!tx) throw new Error(`Transaction not found with ID ${id}`);
     if (tx.status === 'VOIDED') throw new Error('Cannot reconcile a voided transaction.');
+    if (tx.status === 'FAILED') throw new Error('Cannot reconcile a failed transaction.');
+    if (tx.status === 'PENDING') throw new Error('Transaction must be banked or settled before it can be reconciled against a bank statement.');
 
     await db.prepare(`
       UPDATE transactions SET
@@ -942,12 +1058,11 @@ export class D1Controller {
         bank_statement_ref = ?,
         updated_at = datetime('now')
       WHERE id = ?
-    `).bind(this.userId, sanitizeText(bankStatementRef || ''), id).run();
+    `).bind(this.userId, sanitizeText(bankStatementRef.trim()), id).run();
 
     await this.logAudit('transactions', id, 'RECONCILE', { bank_statement_ref: bankStatementRef });
     return await this.getTransaction(id);
   }
-
 
   async depositCash(id) {
     this.checkAdmin();
@@ -955,6 +1070,8 @@ export class D1Controller {
     const tx = await db.prepare(`SELECT * FROM transactions WHERE id = ?`).bind(id).first();
     if (!tx) throw new Error('Transaction not found');
     if (tx.reconciled) throw new Error('Cannot bank a transaction that is already reconciled and permanently locked.');
+    if (tx.type !== 'INCOME') throw new Error('Only INCOME transactions can be banked as cash deposits.');
+    if (tx.method !== 'CASH') throw new Error(`Only CASH income can be deposited into the bank (found ${tx.method}).`);
     if (tx.status !== 'PENDING') throw new Error('Only pending Cash on Hand can be banked.');
 
     await db.prepare(`
@@ -964,7 +1081,6 @@ export class D1Controller {
     await this.logAudit('transactions', id, 'BANK_DEPOSIT', { previous_status: 'PENDING', new_status: 'BANKED' });
     return await this.getTransaction(id);
   }
-
 
   async voidTransaction(id, reason) {
     this.checkAdmin();
@@ -976,8 +1092,6 @@ export class D1Controller {
     if (!tx) throw new Error(`Transaction not found with ID ${id}`);
     if (tx.reconciled) throw new Error('Cannot void reconciled transaction.');
     if (tx.status === 'VOIDED') throw new Error('Transaction is already voided.');
-
-
 
     const batch = [
       db.prepare(`
@@ -994,6 +1108,9 @@ export class D1Controller {
           is_voided = 1,
           voided_at = datetime('now')
         WHERE transaction_id = ?
+      `).bind(id),
+      db.prepare(`
+        DELETE FROM asnaf_records WHERE transaction_id = ?
       `).bind(id)
     ];
 
@@ -1072,8 +1189,23 @@ export class D1Controller {
     const db = await this.getDb();
     const budgetId = `bud-${crypto.randomUUID().substring(0, 8)}`;
     const year = parseInt(fiscal_year, 10);
+    if (isNaN(year) || year < 2000 || year > 2100) {
+      throw new Error('Valid fiscal year is required.');
+    }
+    const fund = await this.getFundById(fund_id);
+    if (!fund) {
+      throw new Error(`Fund not found with ID ${fund_id}`);
+    }
     const targetPence = Math.round(parseFloat(target_amount || 0) * 100);
-    const maxSpendPence = max_spend_limit ? Math.round(parseFloat(max_spend_limit) * 100) : null;
+    if (isNaN(targetPence) || targetPence < 0) {
+      throw new Error('Target amount cannot be negative.');
+    }
+    const maxSpendPence = max_spend_limit !== undefined && max_spend_limit !== null && max_spend_limit !== ''
+      ? Math.round(parseFloat(max_spend_limit) * 100)
+      : null;
+    if (maxSpendPence !== null && (isNaN(maxSpendPence) || maxSpendPence < 0)) {
+      throw new Error('Max spend limit cannot be negative.');
+    }
     const cleanNotes = sanitizeText(notes || '');
 
     await db.prepare(`
@@ -1087,7 +1219,7 @@ export class D1Controller {
     `).bind(budgetId, fund_id, year, targetPence, maxSpendPence, cleanNotes).run();
 
     await this.logAudit('budgets', `${fund_id}-${year}`, 'UPSERT', {
-      fund_id, fiscal_year: year, target_amount: targetPence / 100
+      fund_id, fiscal_year: year, target_amount: targetPence / 100, max_spend_limit: maxSpendPence ? maxSpendPence / 100 : null
     });
 
     const saved = await db.prepare(`SELECT * FROM budgets WHERE fund_id = ? AND fiscal_year = ?`).bind(fund_id, year).first();
@@ -1103,19 +1235,24 @@ export class D1Controller {
   // -------------------------------------------------------------
   async getAsnafRecords(fiscalYearOrTxId) {
     const db = await this.getDb();
-    let sql = `SELECT * FROM asnaf_records WHERE 1=1`;
+    let sql = `
+      SELECT a.* 
+      FROM asnaf_records a
+      JOIN transactions t ON t.id = a.transaction_id
+      WHERE t.status NOT IN ('VOIDED', 'FAILED')
+    `;
     const args = [];
 
     if (fiscalYearOrTxId && typeof fiscalYearOrTxId === 'string' && fiscalYearOrTxId.startsWith('tx-')) {
-      sql += ` AND transaction_id = ?`;
+      sql += ` AND a.transaction_id = ?`;
       args.push(fiscalYearOrTxId);
     } else if (fiscalYearOrTxId) {
       const year = String(fiscalYearOrTxId);
-      sql += ` AND distribution_date LIKE ?`;
+      sql += ` AND a.distribution_date LIKE ?`;
       args.push(`${year}%`);
     }
 
-    sql += ` ORDER BY distribution_date DESC, created_at DESC`;
+    sql += ` ORDER BY a.distribution_date DESC, a.created_at DESC`;
     const res = await db.prepare(sql).bind(...args).all();
     return (res.results || []).map(r => ({
       ...r,
@@ -1133,6 +1270,11 @@ export class D1Controller {
       throw new Error('Beneficiary name or pseudonym is required for Zakat audit trail.');
     }
 
+    const amountPence = Math.round(parseFloat(amount || 0) * 100);
+    if (isNaN(amountPence) || amountPence <= 0) {
+      throw new Error('Asnaf disbursement amount must be greater than zero.');
+    }
+
     const db = await this.getDb();
 
     // Item #8: Cross-reference verification of source transaction
@@ -1148,7 +1290,7 @@ export class D1Controller {
       throw new Error('Cannot link Asnaf disbursement to a VOIDED or FAILED transaction.');
     }
 
-    // Verify source transaction splits include a restricted fund
+    // Verify source transaction splits include a restricted Islamic fund (Zakat/Fitrana)
     const splits = await db.prepare(`
       SELECT s.*, f.name, f.is_restricted
       FROM transaction_splits s
@@ -1156,19 +1298,22 @@ export class D1Controller {
       WHERE s.transaction_id = ? AND s.is_voided = 0
     `).bind(transaction_id).all();
 
-    const hasRestrictedFund = (splits.results || []).some(s => s.is_restricted === 1);
-    if (!hasRestrictedFund) {
+    const eligibleSplits = (splits.results || []).filter(s =>
+      s.is_restricted === 1 && (s.name?.toLowerCase().includes('zakat') || s.name?.toLowerCase().includes('fitrana'))
+    );
+    if (eligibleSplits.length === 0) {
       throw new Error('Asnaf disbursements must be linked to a transaction funded by a restricted Islamic fund (e.g. Zakat, Fitrana).');
     }
 
-    // Verify cumulative Asnaf disbursements <= transaction total
-    const amountPence = Math.round(parseFloat(amount || 0) * 100);
+    const eligibleSplitTotalPence = eligibleSplits.reduce((sum, s) => sum + s.amount, 0);
+
+    // Verify cumulative Asnaf disbursements <= eligible restricted split total
     const existingSum = await db.prepare(`
       SELECT COALESCE(SUM(amount), 0) as total FROM asnaf_records WHERE transaction_id = ?
     `).bind(transaction_id).first('total');
 
-    if ((existingSum + amountPence) > tx.total_amount) {
-      throw new Error(`Total Asnaf disbursements (£${((existingSum + amountPence) / 100).toFixed(2)}) cannot exceed source transaction total (£${(tx.total_amount / 100).toFixed(2)}).`);
+    if ((existingSum + amountPence) > eligibleSplitTotalPence) {
+      throw new Error(`Total Asnaf disbursements (£${((existingSum + amountPence) / 100).toFixed(2)}) cannot exceed eligible restricted Zakat/Fitrana fund allocation (£${(eligibleSplitTotalPence / 100).toFixed(2)}).`);
     }
 
     const asnafId = `asnaf-${crypto.randomUUID().substring(0, 8)}`;
@@ -1206,6 +1351,7 @@ export class D1Controller {
       created_at: new Date().toISOString()
     };
   }
+
 
   // -------------------------------------------------------------
   // NOTIFICATIONS (Item #14)

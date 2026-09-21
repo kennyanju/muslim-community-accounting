@@ -33,14 +33,9 @@ export async function GET(request) {
 
   // Item #25: Default to UK Charity Fiscal Year bounds if dates omitted
   if (!dateFrom && !dateTo) {
-    const fyBounds = getFiscalYearBounds(new Date(), org.fiscal_year_start || '04-06');
-    if (fiscalYearParam) {
-      dateFrom = `${fiscalYearParam}-${org.fiscal_year_start || '04-06'}`;
-      dateTo = `${parseInt(fiscalYearParam, 10) + 1}-${org.fiscal_year_start || '04-06'}`;
-    } else {
-      dateFrom = fyBounds.startDate;
-      dateTo = fyBounds.endDate;
-    }
+    const fyBounds = getFiscalYearBounds(fiscalYearParam || new Date(), org.fiscal_year_start || '04-06');
+    dateFrom = fyBounds.startDate;
+    dateTo = fyBounds.endDate;
   }
 
   let dateRange;
@@ -145,6 +140,8 @@ export async function GET(request) {
     });
   }
 
-  // 3. Fallback to redirect to giftaid route
-  return Response.redirect(new URL('/api/reports/giftaid', request.url));
+  // 3. Fallback to redirect to giftaid route, preserving query parameters
+  const redirectUrl = new URL('/api/reports/giftaid', request.url);
+  redirectUrl.search = searchParams.toString();
+  return Response.redirect(redirectUrl);
 }

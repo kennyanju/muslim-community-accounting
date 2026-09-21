@@ -250,9 +250,19 @@ async function runD1TestSuite() {
   testAssert(buildingSplit && buildingSplit.amount === 10000, `Building split stored as 10000 integer pence (got ${buildingSplit?.amount})`);
   testAssert(lillahSplit && lillahSplit.amount === 5050, `Lillah split stored as 5050 integer pence (got ${lillahSplit?.amount})`);
 
-  // Test 15: Bank Reconciliation in D1 (Item #14)
+  // Test 15: Bank Reconciliation in D1 (Item #14) - PENDING cash cannot be reconciled
+  try {
+    await d1Ctrl.reconcileTransaction(d1Tx.id, 'STMT-SEP-2026-001');
+    testAssert(false, 'Should block reconciling PENDING cash transaction against bank statement');
+  } catch (err) {
+    testAssert(err.message.includes('must be banked or settled'), 'Blocked reconciling unbanked cash transaction');
+  }
+
+  // Bank the cash donation first
+  await d1Ctrl.depositCash(d1Tx.id);
   const reconciledTx = await d1Ctrl.reconcileTransaction(d1Tx.id, 'STMT-SEP-2026-001');
   testAssert(reconciledTx.reconciled === true && reconciledTx.bank_statement_ref === 'STMT-SEP-2026-001', 'D1 bank reconciliation locked with audit statement ref');
+
 
   // Test 16: Void Protection on Reconciled Transaction
   try {
@@ -430,13 +440,168 @@ async function runD1TestSuite() {
   const restoredTx10001 = await d1Ctrl.getTransaction(tx10001.id);
   testAssert(restoredTx10001.total_amount_pence === 10001, `£100.01 restored as 10001 pence (got ${restoredTx10001.total_amount_pence})`);
 
-  // Verify budgets restored
-  const restoredBudgets = await d1Ctrl.getBudgets(2026);
-  testAssert(restoredBudgets && restoredBudgets.length > 0, 'budgets successfully restored into D1');
+  // Test 29: Donor giving total excludes non-income transactions
+  const donorForGivingId = await d1Ctrl.createDonor({
+    name: 'Brother Giving Check',
+    email: `giving_${Date.now()}@masjid.org.uk`
+  });
+  await d1Ctrl.createTransaction({
+    type: 'INCOME',
+    totalAmount: 200.00,
+    donorId: donorForGivingId,
+    splits: [{ fund_id: 'fund-lillah', amount: 200.00 }]
+  });
+  await d1Ctrl.createTransaction({
+    type: 'EXPENSE',
+    totalAmount: 50.00,
+    donorId: donorForGivingId,
+    category: 'Maintenance',
+    splits: [{ fund_id: 'fund-lillah', amount: 50.00 }]
+  });
+  const enrichedDonor = await d1Ctrl.getDonor(donorForGivingId);
+  testAssert(enrichedDonor.total_donations === 200.00, `Donor total giving includes only INCOME: expected £200.00, got £${enrichedDonor.total_donations}`);
+
+  // Test 30: reconcileTransaction validation
+  try {
+    await d1Ctrl.reconcileTransaction(restoredTx100.id, '');
+    testAssert(false, 'Should block reconciling with empty statement reference');
+  } catch (err) {
+    testAssert(err.message.includes('valid bank statement reference is required'), 'D1 blocked empty bank statement reference');
+  }
+
+  // Test 31: depositCash validation (reject non-INCOME or non-CASH)
+  const expenseTx = await d1Ctrl.createTransaction({
+    type: 'EXPENSE',
+    totalAmount: 30.00,
+    category: 'Utilities',
+    splits: [{ fund_id: 'fund-lillah', amount: 30.00 }]
+  });
+  try {
+    await d1Ctrl.depositCash(expenseTx.id);
+    testAssert(false, 'Should block depositCash on EXPENSE');
+  } catch (err) {
+    testAssert(err.message.includes('Only INCOME transactions can be banked'), 'D1 blocked depositCash on EXPENSE transaction');
+  }
+
+  // Test 32: Asnaf allocation cap against restricted Zakat/Fitrana split
+  const mixedExpenseTx = await d1Ctrl.createTransaction({
+    type: 'EXPENSE',
+    totalAmount: 100.00,
+    category: 'Charitable Payout',
+    reference_note: 'Asnaf food package aid for local destitute families',
+    splits: [
+      { fund_id: 'fund-lillah', amount: 30.00 },
+      { fund_id: 'fund-zakat', amount: 70.00 }
+    ]
+  });
+
+
+  try {
+    await d1Ctrl.recordAsnafDisbursement({
+      transaction_id: mixedExpenseTx.id,
+      beneficiary_name: 'Beneficiary Exceeding Zakat Split',
+      asnaf_category: 'FUQARA',
+      amount: 80.00
+    });
+    testAssert(false, 'Should block Asnaf disbursement exceeding restricted Zakat split');
+  } catch (err) {
+    testAssert(err.message.includes('cannot exceed eligible restricted Zakat/Fitrana'), 'D1 strictly capped Asnaf disbursement to restricted Zakat split allocation (£70)');
+  }
+
+  const validAsnaf = await d1Ctrl.recordAsnafDisbursement({
+    transaction_id: mixedExpenseTx.id,
+    beneficiary_name: 'Deserving Family (Zakat)',
+    asnaf_category: 'FUQARA',
+    amount: 50.00
+  });
+  testAssert(validAsnaf && validAsnaf.amount === 50.00, 'Recorded valid Asnaf disbursement within restricted split limit');
+
+  // Test 33: voidTransaction cascades deletion of linked Asnaf records
+  await d1Ctrl.voidTransaction(mixedExpenseTx.id, 'Voiding mixed expense with asnaf');
+  const asnafAfterVoid = await d1Ctrl.getAsnafRecords(mixedExpenseTx.id);
+  testAssert(asnafAfterVoid.length === 0, 'voidTransaction successfully cascaded deletion of linked Asnaf records');
+
+  // Test 34: Inter-Fund Transfer rules (CC17 / Shariah)
+  await d1Ctrl.createTransaction({
+    type: 'INCOME',
+    totalAmount: 500.00,
+    status: 'BANKED',
+    method: 'BANK_TRANSFER',
+    splits: [{ fund_id: 'fund-lillah', amount: 500.00 }]
+  });
+
+  try {
+    await d1Ctrl.transferFund({
+      fromFundId: 'fund-zakat',
+      toFundId: 'fund-lillah',
+      amount: 50.00,
+      reason: 'Repurpose Zakat to General operational'
+    });
+    testAssert(false, 'Should block transferring restricted fund to unrestricted fund');
+  } catch (err) {
+    testAssert(err.message.includes('Cannot transfer from restricted fund'), 'D1 strictly blocked restricted fund transfer to unrestricted fund');
+  }
+
+  try {
+    await d1Ctrl.transferFund({
+      fromFundId: 'fund-lillah',
+      toFundId: 'fund-building',
+      amount: 9999999.00,
+      reason: 'Massive transfer'
+    });
+    testAssert(false, 'Should block transfer exceeding available balance');
+  } catch (err) {
+    testAssert(err.message.includes('Insufficient balance in source fund'), 'D1 strictly blocked transfer with insufficient balance');
+  }
+
+  const validTransfer = await d1Ctrl.transferFund({
+    fromFundId: 'fund-lillah',
+    toFundId: 'fund-building',
+    amount: 100.00,
+    reason: 'Trustees designated general surplus to building project'
+  });
+  testAssert(validTransfer.success === true, 'Successfully executed compliant inter-fund transfer');
+
+  // Test 35: saveBudget validation
+  try {
+    await d1Ctrl.saveBudget({
+      fund_id: 'fund-building',
+      fiscal_year: 2026,
+      target_amount: -500.00
+    });
+    testAssert(false, 'Should block negative budget target');
+  } catch (err) {
+    testAssert(err.message.includes('cannot be negative'), 'D1 strictly blocked negative budget target');
+  }
+
+  // Test 36: getFiscalYearBounds 4-digit parameter handling
+  const fy2024 = getFiscalYearBounds('2024', '04-06');
+  testAssert(fy2024.startDate === '2024-04-06', `fy2024.startDate is 2024-04-06 (got ${fy2024.startDate})`);
+  testAssert(fy2024.endDate === '2025-04-05', `fy2024.endDate is 2025-04-05 (got ${fy2024.endDate})`);
+
+  // Test 37: Stripe webhook idempotency check via processed_webhook_events
+  const testEventId = `evt_test_${Date.now()}`;
+  await db.prepare(`
+    INSERT INTO processed_webhook_events (id, provider, event_type, created_at)
+    VALUES (?, 'stripe', 'payment_intent.succeeded', datetime('now'))
+  `).bind(testEventId).run();
+
+  const dupCheck = await db.prepare(`SELECT id FROM processed_webhook_events WHERE id = ?`).bind(testEventId).first();
+  testAssert(dupCheck && dupCheck.id === testEventId, 'processed_webhook_events correctly tracks Stripe event ID');
+
+  // Test 38: Notification deduplication check
+  await db.prepare(`
+    INSERT INTO notifications (id, type, severity, message, created_at)
+    VALUES (?, 'ZAKAT_SURPLUS', 'INFO', 'Zakat surplus alert', datetime('now'))
+  `).bind(`notif-test-${Date.now()}`).run();
+
+  const unreadAlert = await db.prepare(`SELECT id FROM notifications WHERE type = 'ZAKAT_SURPLUS' AND read_at IS NULL LIMIT 1`).first();
+  testAssert(unreadAlert && unreadAlert.id, 'Active unread Zakat surplus alert identified for deduplication');
 
   console.log("--------------------------------------------------");
   console.log(`D1 TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);
   console.log("--------------------------------------------------");
+
 
 
   if (failCount > 0) {

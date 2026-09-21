@@ -35,7 +35,7 @@ export default function DashboardTab() {
       const change = t.type === 'INCOME' ? parseFloat(t.total_amount) : -parseFloat(t.total_amount);
       if (t.status === 'BANKED') {
         bankTotal += change;
-      } else if (t.status === 'PENDING') {
+      } else if (t.method === 'CASH' && t.status === 'PENDING') {
         cashTotal += change;
       }
     });
@@ -64,6 +64,7 @@ export default function DashboardTab() {
       const txTime = new Date(t.transaction_date).getTime();
 
       if (
+        t.is_jummah === 1 || t.is_jummah === true ||
         (t.reference_note && t.reference_note.toLowerCase().includes('jummah')) ||
         (t.category && t.category.toLowerCase().includes('jummah'))
       ) {
