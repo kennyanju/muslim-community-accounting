@@ -1013,9 +1013,9 @@ async function runD1TestSuite() {
 
   // Test 57: getGASDSSummary accurately aggregates small cash gifts up to £8,000 allowance
   const gasds = await d1Ctrl.getGASDSSummary({ fiscalYear: 2026 });
-  testAssert(gasds.max_statutory_cap_pounds === 8000, 'GASDS statutory cap is £8,000');
-  testAssert(gasds.top_up_claim_pounds === gasds.claimable_allowance_pounds * 0.25, 'GASDS 25% top-up claim mathematically accurate');
-  testAssert(gasds.claimable_allowance_pounds <= 8000, 'GASDS claimable allowance does not exceed statutory cap');
+  testAssert(gasds.max_statutory_cap_pence === 800000, 'GASDS statutory cap is £8,000 (800,000 pence)');
+  testAssert(gasds.top_up_claim_pence === Math.round(gasds.claimable_allowance_pence * 0.25), 'GASDS 25% top-up claim mathematically accurate in integer pence');
+  testAssert(gasds.claimable_allowance_pence <= 800000, 'GASDS claimable allowance does not exceed statutory cap');
 
   // Test 58: sendDonationReceiptEmail dispatches formatted receipt
   const receiptEmailResult = await sendDonationReceiptEmail({
