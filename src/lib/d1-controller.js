@@ -19,11 +19,13 @@ const DEFAULT_ORGANISATION = {
   zakat_surplus_alert_pence: 500000,
   zakat_reserve_min_pence: 20000,
   large_donation_threshold_pence: 50000,
+  approval_threshold_pence: 100000,
+  closed_until_date: null,
   receipt_counter: 1
 };
 
 export const DISPLAY_SAFE_ORG_FIELDS = [
-  'name', 'short_name', 'tagline', 'currency_symbol', 'fiscal_year_start'
+  'name', 'short_name', 'tagline', 'currency_symbol', 'fiscal_year_start', 'closed_until_date', 'approval_threshold'
 ];
 
 // Short-lived balance cache to avoid redundant aggregations on rapid dashboard requests (Item #13)
@@ -111,8 +113,9 @@ export class D1Controller {
         INSERT INTO organisations (
           id, name, short_name, tagline, charity_number, address, email, phone,
           currency_symbol, country, receipt_counter, fiscal_year_start,
-          zakat_surplus_alert_pence, zakat_reserve_min_pence, large_donation_threshold_pence
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          zakat_surplus_alert_pence, zakat_reserve_min_pence, large_donation_threshold_pence,
+          approval_threshold_pence, closed_until_date
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         DEFAULT_ORGANISATION.id,
         DEFAULT_ORGANISATION.name,
@@ -128,7 +131,9 @@ export class D1Controller {
         DEFAULT_ORGANISATION.fiscal_year_start,
         DEFAULT_ORGANISATION.zakat_surplus_alert_pence,
         DEFAULT_ORGANISATION.zakat_reserve_min_pence,
-        DEFAULT_ORGANISATION.large_donation_threshold_pence
+        DEFAULT_ORGANISATION.large_donation_threshold_pence,
+        DEFAULT_ORGANISATION.approval_threshold_pence,
+        DEFAULT_ORGANISATION.closed_until_date
       ).run();
       org = { ...DEFAULT_ORGANISATION };
     }
@@ -136,9 +141,11 @@ export class D1Controller {
     // Attach human-readable pounds alongside pence for convenience
     return {
       ...org,
+      approval_threshold: (org.approval_threshold_pence || 100000) / 100,
       zakat_surplus_alert: (org.zakat_surplus_alert_pence || 500000) / 100,
       zakat_reserve_min: (org.zakat_reserve_min_pence || 20000) / 100,
-      large_donation_threshold: (org.large_donation_threshold_pence || 50000) / 100
+      large_donation_threshold: (org.large_donation_threshold_pence || 50000) / 100,
+      closed_until_date: org.closed_until_date || null
     };
   }
 
@@ -180,20 +187,77 @@ export class D1Controller {
       large_donation_threshold_pence = parseInt(updates.large_donation_threshold_pence, 10);
     }
 
+    let approval_threshold_pence = current.approval_threshold_pence || 100000;
+    if (updates.approval_threshold !== undefined) {
+      approval_threshold_pence = Math.round(parseFloat(updates.approval_threshold) * 100);
+    } else if (updates.approval_threshold_pence !== undefined) {
+      approval_threshold_pence = parseInt(updates.approval_threshold_pence, 10);
+    }
+
+    let closed_until_date = current.closed_until_date;
+    if (updates.closed_until_date !== undefined) {
+      closed_until_date = updates.closed_until_date ? updates.closed_until_date.trim() : null;
+    }
+
     await db.prepare(`
       UPDATE organisations SET
         name = ?, short_name = ?, tagline = ?, charity_number = ?, address = ?,
         email = ?, phone = ?, currency_symbol = ?, country = ?, fiscal_year_start = ?,
         zakat_surplus_alert_pence = ?, zakat_reserve_min_pence = ?, large_donation_threshold_pence = ?,
+        approval_threshold_pence = ?, closed_until_date = ?,
         updated_at = datetime('now')
       WHERE id = 'main'
     `).bind(
       name, short_name, tagline, charity_number, address,
       email, phone, currency_symbol, country, fiscal_year_start,
-      zakat_surplus_alert_pence, zakat_reserve_min_pence, large_donation_threshold_pence
+      zakat_surplus_alert_pence, zakat_reserve_min_pence, large_donation_threshold_pence,
+      approval_threshold_pence, closed_until_date
     ).run();
 
     await this.logAudit('organisations', 'main', 'UPDATE', { before: current, after: updates });
+    return await this.getOrganisation();
+  }
+
+  async closeAccountingPeriod(closedUntilDate, reason) {
+    this.checkAdmin();
+    if (!closedUntilDate || !/^\d{4}-\d{2}-\d{2}$/.test(closedUntilDate)) {
+      throw new Error('A valid closed_until_date (YYYY-MM-DD) is required.');
+    }
+    if (!reason || reason.trim().length < 5) {
+      throw new Error('A valid audit reason (at least 5 characters) is required to close an accounting period.');
+    }
+    const db = await this.getDb();
+    const current = await this.getOrganisation();
+
+    await db.prepare(`
+      UPDATE organisations SET closed_until_date = ?, updated_at = datetime('now') WHERE id = 'main'
+    `).bind(closedUntilDate).run();
+
+    await this.logAudit('organisations', 'main', 'PERIOD_CLOSE', {
+      before: { closed_until_date: current.closed_until_date },
+      after: { closed_until_date: closedUntilDate },
+      reason: reason.trim()
+    });
+    return await this.getOrganisation();
+  }
+
+  async reopenAccountingPeriod(reason) {
+    this.checkAdmin();
+    if (!reason || reason.trim().length < 5) {
+      throw new Error('A valid justification (at least 5 characters) is required to reopen a closed accounting period.');
+    }
+    const db = await this.getDb();
+    const current = await this.getOrganisation();
+
+    await db.prepare(`
+      UPDATE organisations SET closed_until_date = NULL, updated_at = datetime('now') WHERE id = 'main'
+    `).run();
+
+    await this.logAudit('organisations', 'main', 'PERIOD_REOPEN', {
+      before: { closed_until_date: current.closed_until_date },
+      after: { closed_until_date: null },
+      reason: reason.trim()
+    });
     return await this.getOrganisation();
   }
 
@@ -555,6 +619,10 @@ export class D1Controller {
     }
 
     const transferDate = date || new Date().toISOString().substring(0, 10);
+    const org = await this.getOrganisation();
+    if (org.closed_until_date && transferDate <= org.closed_until_date) {
+      throw new Error(`Governance Violation: Accounting period is closed through ${org.closed_until_date}. Cannot perform inter-fund transfers into a closed period.`);
+    }
     const cleanReason = sanitizeText(reason || `Inter-fund transfer from ${sourceFund.name} to ${targetFund.name}`);
     const outTxId = `tx-${crypto.randomUUID().substring(0, 8)}`;
     const inTxId = `tx-${crypto.randomUUID().substring(0, 8)}`;
@@ -1262,6 +1330,10 @@ export class D1Controller {
     // Generate atomic receipt number for INCOME only
     let receiptNumber = '';
     const txDate = data.date || data.transaction_date || new Date().toISOString().split('T')[0];
+    const org = await this.getOrganisation();
+    if (org.closed_until_date && txDate <= org.closed_until_date) {
+      throw new Error(`Governance Violation: Accounting period is closed through ${org.closed_until_date}. Backdated transactions into closed periods are strictly prohibited.`);
+    }
 
     if (type === 'INCOME') {
       const orgUpdate = await db.prepare(`
@@ -1462,6 +1534,11 @@ export class D1Controller {
     if (tx.reconciled) throw new Error('Cannot void reconciled transaction.');
     if (tx.status === 'VOIDED') throw new Error('Transaction is already voided.');
 
+    const org = await this.getOrganisation();
+    if (org.closed_until_date && tx.transaction_date <= org.closed_until_date) {
+      throw new Error(`Governance Violation: Accounting period is closed through ${org.closed_until_date}. Cannot void transactions from a closed period.`);
+    }
+
     const batch = [
       db.prepare(`
         UPDATE transactions SET
@@ -1616,6 +1693,199 @@ export class D1Controller {
 
     balanceCache = { data: balances, timestamp: now };
     return balances;
+  }
+
+  // -------------------------------------------------------------
+  // CC16 RECEIPTS & PAYMENTS STATEMENT (Charity Commission)
+  // -------------------------------------------------------------
+  async getCC16Statement({ fiscalYear, startDate, endDate } = {}) {
+    const db = await this.getDb();
+    const org = await this.getOrganisation();
+
+    let start = startDate;
+    let end = endDate;
+    if (!start || !end) {
+      const bounds = getFiscalYearBounds(fiscalYear || new Date(), org.fiscal_year_start || '04-06');
+      if (!start) start = bounds.startDate;
+      if (!end) end = bounds.endDate;
+    }
+
+    // 1. Fetch active funds
+    const fundsRes = await db.prepare(`
+      SELECT id, name, is_restricted FROM funds WHERE is_archived = 0 ORDER BY name ASC
+    `).all();
+    const fundsList = fundsRes.results || [];
+    const restrictedMap = new Map(fundsList.map(f => [f.id, Boolean(f.is_restricted)]));
+
+    // 2. Opening balance before start date
+    const openSplitsRes = await db.prepare(`
+      SELECT s.fund_id, s.amount, t.type
+      FROM transaction_splits s
+      JOIN transactions t ON t.id = s.transaction_id AND t.status NOT IN ('VOIDED', 'FAILED', 'PENDING_APPROVAL')
+      WHERE s.is_voided = 0 AND t.transaction_date < ?
+    `).bind(start).all();
+
+    let openingUnrestrictedPence = 0;
+    let openingRestrictedPence = 0;
+    (openSplitsRes.results || []).forEach(row => {
+      const isRestricted = restrictedMap.get(row.fund_id) || false;
+      const signed = row.type === 'INCOME' ? row.amount : -row.amount;
+      if (isRestricted) {
+        openingRestrictedPence += signed;
+      } else {
+        openingUnrestrictedPence += signed;
+      }
+    });
+
+    // 3. Transactions in period [start, end]
+    const periodSplitsRes = await db.prepare(`
+      SELECT s.fund_id, s.amount, t.id as transaction_id, t.type, t.category, t.reference_note, t.method, t.status, t.bank_statement_ref
+      FROM transaction_splits s
+      JOIN transactions t ON t.id = s.transaction_id AND t.status NOT IN ('VOIDED', 'FAILED', 'PENDING_APPROVAL')
+      WHERE s.is_voided = 0 AND t.transaction_date >= ? AND t.transaction_date <= ?
+    `).bind(start, end).all();
+
+    const periodRows = periodSplitsRes.results || [];
+
+    const receiptsMap = {};
+    const paymentsMap = {};
+
+    let totalIncomingUnrestrictedPence = 0;
+    let totalIncomingRestrictedPence = 0;
+    let totalPaymentsUnrestrictedPence = 0;
+    let totalPaymentsRestrictedPence = 0;
+    let transfersUnrestrictedPence = 0;
+    let transfersRestrictedPence = 0;
+
+    periodRows.forEach(row => {
+      const isTransfer = Boolean(row.bank_statement_ref && row.bank_statement_ref.startsWith('TRANSFER:'));
+      const isRestricted = restrictedMap.get(row.fund_id) || false;
+
+      if (isTransfer) {
+        const signed = row.type === 'INCOME' ? row.amount : -row.amount;
+        if (isRestricted) {
+          transfersRestrictedPence += signed;
+        } else {
+          transfersUnrestrictedPence += signed;
+        }
+        return;
+      }
+
+      const cat = row.category || (row.type === 'INCOME' ? 'Donation' : 'Other');
+      if (row.type === 'INCOME') {
+        if (!receiptsMap[cat]) {
+          receiptsMap[cat] = { category: cat, unrestrictedPence: 0, restrictedPence: 0, totalPence: 0 };
+        }
+        if (isRestricted) {
+          receiptsMap[cat].restrictedPence += row.amount;
+          totalIncomingRestrictedPence += row.amount;
+        } else {
+          receiptsMap[cat].unrestrictedPence += row.amount;
+          totalIncomingUnrestrictedPence += row.amount;
+        }
+        receiptsMap[cat].totalPence += row.amount;
+      } else {
+        if (!paymentsMap[cat]) {
+          paymentsMap[cat] = { category: cat, unrestrictedPence: 0, restrictedPence: 0, totalPence: 0 };
+        }
+        if (isRestricted) {
+          paymentsMap[cat].restrictedPence += row.amount;
+          totalPaymentsRestrictedPence += row.amount;
+        } else {
+          paymentsMap[cat].unrestrictedPence += row.amount;
+          totalPaymentsUnrestrictedPence += row.amount;
+        }
+        paymentsMap[cat].totalPence += row.amount;
+      }
+    });
+
+    const receipts = Object.values(receiptsMap).map(r => ({
+      ...r,
+      unrestricted: r.unrestrictedPence / 100,
+      restricted: r.restrictedPence / 100,
+      total: r.totalPence / 100
+    }));
+
+    const payments = Object.values(paymentsMap).map(p => ({
+      ...p,
+      unrestricted: p.unrestrictedPence / 100,
+      restricted: p.restrictedPence / 100,
+      total: p.totalPence / 100
+    }));
+
+    const netReceiptsUnrestrictedPence = totalIncomingUnrestrictedPence - totalPaymentsUnrestrictedPence;
+    const netReceiptsRestrictedPence = totalIncomingRestrictedPence - totalPaymentsRestrictedPence;
+    const netReceiptsTotalPence = netReceiptsUnrestrictedPence + netReceiptsRestrictedPence;
+
+    const closingUnrestrictedPence = openingUnrestrictedPence + netReceiptsUnrestrictedPence + transfersUnrestrictedPence;
+    const closingRestrictedPence = openingRestrictedPence + netReceiptsRestrictedPence + transfersRestrictedPence;
+    const closingTotalPence = closingUnrestrictedPence + closingRestrictedPence;
+
+    // 4. Statement of Assets and Liabilities (Cash vs Bank at end date)
+    const assetRowsRes = await db.prepare(`
+      SELECT t.method, t.status, t.type, s.amount
+      FROM transaction_splits s
+      JOIN transactions t ON t.id = s.transaction_id AND t.status NOT IN ('VOIDED', 'FAILED', 'PENDING_APPROVAL')
+      WHERE s.is_voided = 0 AND t.transaction_date <= ?
+    `).bind(end).all();
+
+    let cashInHandPence = 0;
+    let cashAtBankPence = 0;
+    (assetRowsRes.results || []).forEach(r => {
+      const signed = r.type === 'INCOME' ? r.amount : -r.amount;
+      if (r.method === 'CASH' && r.status === 'PENDING') {
+        cashInHandPence += signed;
+      } else {
+        cashAtBankPence += signed;
+      }
+    });
+
+    return {
+      charityName: org.name,
+      charityNumber: org.charity_number,
+      fiscalYearStart: org.fiscal_year_start,
+      currencySymbol: org.currency_symbol || '£',
+      reportingPeriod: { startDate: start, endDate: end },
+      receipts,
+      payments,
+      totals: {
+        receipts: {
+          unrestricted: totalIncomingUnrestrictedPence / 100,
+          restricted: totalIncomingRestrictedPence / 100,
+          total: (totalIncomingUnrestrictedPence + totalIncomingRestrictedPence) / 100
+        },
+        payments: {
+          unrestricted: totalPaymentsUnrestrictedPence / 100,
+          restricted: totalPaymentsRestrictedPence / 100,
+          total: (totalPaymentsUnrestrictedPence + totalPaymentsRestrictedPence) / 100
+        },
+        netReceipts: {
+          unrestricted: netReceiptsUnrestrictedPence / 100,
+          restricted: netReceiptsRestrictedPence / 100,
+          total: netReceiptsTotalPence / 100
+        },
+        transfers: {
+          unrestricted: transfersUnrestrictedPence / 100,
+          restricted: transfersRestrictedPence / 100,
+          total: (transfersUnrestrictedPence + transfersRestrictedPence) / 100
+        },
+        openingBalances: {
+          unrestricted: openingUnrestrictedPence / 100,
+          restricted: openingRestrictedPence / 100,
+          total: (openingUnrestrictedPence + openingRestrictedPence) / 100
+        },
+        closingBalances: {
+          unrestricted: closingUnrestrictedPence / 100,
+          restricted: closingRestrictedPence / 100,
+          total: closingTotalPence / 100
+        }
+      },
+      assets: {
+        cashInHand: cashInHandPence / 100,
+        cashAtBank: cashAtBankPence / 100,
+        totalCashFunds: (cashInHandPence + cashAtBankPence) / 100
+      }
+    };
   }
 
   // -------------------------------------------------------------

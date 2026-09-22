@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS organisations (
   zakat_reserve_min_pence INTEGER DEFAULT 20000, -- £200 minimum reserve threshold
   large_donation_threshold_pence INTEGER DEFAULT 50000, -- £500 large donation threshold
   approval_threshold_pence INTEGER DEFAULT 100000, -- £1,000 default threshold for dual approval
+  closed_until_date TEXT, -- Accounting period lock date (blocks backdated edits on or before this date)
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

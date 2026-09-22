@@ -5,6 +5,7 @@ import { useApp } from '@/context/AppContext';
 import { validateClientTransaction } from '@/lib/clientValidation';
 import { formatCurrency } from '@/utils/formatters';
 import { useModalFocusTrap } from '@/hooks/useModalFocusTrap';
+import DonorTypeahead from '@/components/common/DonorTypeahead';
 
 const INCOME_CATEGORIES = ["Donation", "Zakat", "Fitrana", "Madrasah Fees", "Event Tickets", "Interest", "Other"];
 const EXPENSE_CATEGORIES = ["Utilities", "Salaries", "Maintenance", "Charitable Payout", "Office Supplies", "Travel", "Other"];
@@ -93,15 +94,18 @@ export default function TransactionModal() {
     if (errors.splits) setErrors(prev => ({ ...prev, splits: null }));
   };
 
-  const handleDonorSelect = (donorId) => {
-    if (donorId === 'anonymous') {
-      setForm(prev => ({ ...prev, donorId, giftAid: false }));
+  const handleDonorSelect = (selected) => {
+    const donorId = typeof selected === 'object' ? selected?.id : selected;
+    if (donorId === 'anonymous' || !donorId) {
+      setForm(prev => ({ ...prev, donorId: 'anonymous', giftAid: false }));
     } else {
-      const d = donors.find(donor => donor.id === donorId);
+      const isEligible = typeof selected === 'object' 
+        ? Boolean(selected?.gift_aid_eligible) 
+        : Boolean(donors.find(d => d.id === donorId)?.gift_aid_eligible);
       setForm(prev => ({
         ...prev,
         donorId,
-        giftAid: d ? !!d.gift_aid_eligible : false
+        giftAid: isEligible
       }));
     }
   };
@@ -250,18 +254,12 @@ export default function TransactionModal() {
           {form.type === 'income' && (
             <div className="form-row-2">
               <div className="form-group">
-                <label htmlFor="tx-donor">Donor Profile</label>
-                <select 
-                  id="tx-donor"
-                  name="donorId"
-                  value={form.donorId} 
-                  onChange={e => handleDonorSelect(e.target.value)}
-                >
-                  <option value="anonymous">Anonymous Cash Donor</option>
-                  {donors.filter(d => !d.is_anonymous).map(d => (
-                    <option key={d.id} value={d.id}>{d.name} {d.gift_aid_eligible ? '(Gift Aid Eligible)' : ''}</option>
-                  ))}
-                </select>
+                <label htmlFor="tx-donor-search">Donor Profile</label>
+                <DonorTypeahead
+                  selectedDonorId={form.donorId}
+                  onSelectDonor={handleDonorSelect}
+                  donors={donors}
+                />
               </div>
               <div className="form-group checkbox-group-align">
                 <label className="checkbox-label">

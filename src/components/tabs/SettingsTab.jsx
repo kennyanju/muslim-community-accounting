@@ -21,6 +21,70 @@ export default function SettingsTab() {
   const [pendingRestorePayload, setPendingRestorePayload] = useState(null);
   const fileInputRef = useRef(null);
 
+  const [lockDate, setLockDate] = useState('');
+  const [lockReason, setLockReason] = useState('');
+  const [reopenReason, setReopenReason] = useState('');
+  const [isUpdatingPeriodLock, setIsUpdatingPeriodLock] = useState(false);
+
+  const handleLockPeriod = async (e) => {
+    e.preventDefault();
+    if (!lockDate) {
+      addToast('Please select a date through which to lock the ledger.', 'error');
+      return;
+    }
+    if (!lockReason || lockReason.trim().length < 5) {
+      addToast('An audit reason of at least 5 characters is required.', 'error');
+      return;
+    }
+
+    setIsUpdatingPeriodLock(true);
+    try {
+      const updated = await fetchAPI('/api/organisation/period-lock', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'close',
+          closed_until_date: lockDate,
+          reason: lockReason
+        })
+      });
+      setOrg(updated);
+      setLockReason('');
+      addToast(`Accounting period closed and locked through ${lockDate}.`, 'success');
+      refreshData();
+    } catch (err) {
+      addToast(err.message, 'error');
+    } finally {
+      setIsUpdatingPeriodLock(false);
+    }
+  };
+
+  const handleReopenPeriod = async (e) => {
+    e.preventDefault();
+    if (!reopenReason || reopenReason.trim().length < 5) {
+      addToast('A justification of at least 5 characters is required to reopen the period.', 'error');
+      return;
+    }
+
+    setIsUpdatingPeriodLock(true);
+    try {
+      const updated = await fetchAPI('/api/organisation/period-lock', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'reopen',
+          reason: reopenReason
+        })
+      });
+      setOrg(updated);
+      setReopenReason('');
+      addToast('Accounting period reopened successfully.', 'success');
+      refreshData();
+    } catch (err) {
+      addToast(err.message, 'error');
+    } finally {
+      setIsUpdatingPeriodLock(false);
+    }
+  };
+
   const handleUpdateOrganisation = async (e) => {
     e.preventDefault();
 
@@ -171,6 +235,7 @@ export default function SettingsTab() {
 
       {/* Subtab 1: Mosque Profile */}
       {subtab === 'profile' && (
+        <>
         <div className="glass-card" style={{ maxWidth: '720px' }}>
           <h3>Organisation &amp; Charity Details</h3>
           <p className="info-p" style={{ marginBottom: '20px' }}>
@@ -313,6 +378,101 @@ export default function SettingsTab() {
             </div>
           </form>
         </div>
+
+        <div className="glass-card" style={{ marginTop: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div>
+              <h3>Accounting Period Close &amp; Audit Governance</h3>
+              <p className="info-p">Anti-tamper controls: prevent backdated postings, modifications, or voids into historical audited periods.</p>
+            </div>
+            <span
+              style={{
+                padding: '6px 12px',
+                borderRadius: '6px',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                background: org.closed_until_date ? 'rgba(229, 62, 62, 0.15)' : 'rgba(72, 187, 120, 0.15)',
+                color: org.closed_until_date ? '#e53e3e' : '#48bb78',
+                border: `1px solid ${org.closed_until_date ? '#e53e3e' : '#48bb78'}`
+              }}
+            >
+              {org.closed_until_date ? `🔒 Closed Through ${org.closed_until_date}` : '🟢 Ledger Active (Open)'}
+            </span>
+          </div>
+
+          {org.closed_until_date ? (
+            <div style={{ background: 'rgba(229, 62, 62, 0.06)', padding: '16px', borderRadius: '8px', border: '1px solid rgba(229, 62, 62, 0.2)' }}>
+              <p style={{ margin: '0 0 12px 0', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                <strong>Audit Notice:</strong> The books for periods on or prior to <strong>{org.closed_until_date}</strong> are permanently locked.
+                Any attempts to create backdated transactions, void entries, or transfer funds on or prior to this date will be blocked.
+              </p>
+              <form onSubmit={handleReopenPeriod}>
+                <div className="form-group" style={{ marginBottom: '12px' }}>
+                  <label htmlFor="reopen-reason">Reopen Justification / Audit Reason *</label>
+                  <input
+                    id="reopen-reason"
+                    type="text"
+                    className="input-field"
+                    placeholder="e.g., Independent Examiner requested audit adjustment for year end 2024"
+                    value={reopenReason}
+                    onChange={e => setReopenReason(e.target.value)}
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="btn btn-outline"
+                  disabled={isUpdatingPeriodLock}
+                  style={{ color: '#e53e3e', borderColor: '#e53e3e' }}
+                >
+                  {isUpdatingPeriodLock ? 'Reopening...' : '🔓 Reopen Accounting Period'}
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <p style={{ margin: '0 0 16px 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
+                To finalize quarterly accounts or your Charity Commission annual return, close the accounting period up to your audit date.
+              </p>
+              <form onSubmit={handleLockPeriod}>
+                <div className="form-row-2">
+                  <div className="form-group">
+                    <label htmlFor="period-lock-date">Close Books Through Date *</label>
+                    <input
+                      id="period-lock-date"
+                      type="date"
+                      className="input-field"
+                      value={lockDate}
+                      onChange={e => setLockDate(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="period-lock-reason">Audit Sign-off Justification *</label>
+                    <input
+                      id="period-lock-reason"
+                      type="text"
+                      className="input-field"
+                      placeholder="e.g., Trustees approved Q4 accounts / Annual audit complete"
+                      value={lockReason}
+                      onChange={e => setLockReason(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={isUpdatingPeriodLock}
+                  style={{ marginTop: '8px' }}
+                >
+                  {isUpdatingPeriodLock ? 'Locking Period...' : '🔒 Close & Lock Accounting Period'}
+                </button>
+              </form>
+            </div>
+          )}
+        </div>
+        </>
       )}
 
       {/* Subtab 2: Fund Management */}

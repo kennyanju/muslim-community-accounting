@@ -907,6 +907,109 @@ async function runD1TestSuite() {
   testAssert(refundSplit && refundSplit.fund_id === 'fund-building' && refundSplit.amount === 10000,
     'Compensating refund reversal accurately credited/debited back against original fund-building in integer pence');
 
+  // Test 51: closeAccountingPeriod updates closed_until_date and logs audit trail
+  const closedOrg = await d1Ctrl.closeAccountingPeriod('2025-04-05', 'Independent examination sign-off for FY 2024-25');
+  testAssert(closedOrg.closed_until_date === '2025-04-05', 'Accounting period closed through 2025-04-05');
+  const periodAudit = await db.prepare("SELECT * FROM audit_logs WHERE action = 'PERIOD_CLOSE' ORDER BY timestamp DESC").first();
+  testAssert(periodAudit && periodAudit.metadata.includes('2025-04-05'), 'Immutable audit trail recorded for PERIOD_CLOSE');
+
+  // Test 52: createTransaction in closed period is rejected
+  let closedCreateError = null;
+  try {
+    await d1Ctrl.createTransaction({
+      type: 'INCOME',
+      status: 'BANKED',
+      method: 'CASH',
+      totalAmount: 50.00,
+      date: '2025-04-05',
+      category: 'Donation',
+      reference_note: 'Backdated donation attempt into closed period',
+      splits: [{ fund_id: 'fund-lillah', amount: 50.00 }]
+    });
+  } catch (err) {
+    closedCreateError = err.message;
+  }
+  testAssert(closedCreateError && closedCreateError.includes('Accounting period is closed'),
+    'createTransaction into closed accounting period strictly rejected');
+
+  // Allowed transaction in open period (> closed_until_date)
+  const openTx = await d1Ctrl.createTransaction({
+    type: 'INCOME',
+    status: 'BANKED',
+    method: 'BANK_TRANSFER',
+    totalAmount: 75.00,
+    date: '2025-04-06',
+    category: 'Donation',
+    reference_note: 'Legitimate donation in open period',
+    splits: [{ fund_id: 'fund-lillah', amount: 75.00 }]
+  });
+  testAssert(openTx && openTx.id, 'createTransaction on 2025-04-06 (after closed date) succeeds');
+
+  // Insert a mock historical transaction inside the closed period directly for void test
+  const closedHistTxId = 'tx-closed-hist';
+  await db.prepare(`
+    INSERT INTO transactions (id, receipt_number, type, status, total_amount, method, category, transaction_date, bank_statement_ref, reconciled, gift_aid, created_by, created_at)
+    VALUES (?, 'BSMC-2024-9999', 'INCOME', 'BANKED', 10000, 'BANK_TRANSFER', 'Donation', '2025-03-15', 'REF-HIST', 0, 0, 'user-d1-admin', '2025-03-15')
+  `).bind(closedHistTxId).run();
+  await db.prepare(`
+    INSERT INTO transaction_splits (id, transaction_id, fund_id, amount, is_voided, created_at)
+    VALUES ('spl-closed-hist', ?, 'fund-lillah', 10000, 0, '2025-03-15')
+  `).bind(closedHistTxId).run();
+
+  // Test 53: voidTransaction in closed period is rejected
+  let closedVoidError = null;
+  try {
+    await d1Ctrl.voidTransaction(closedHistTxId, 'Attempting to void historical closed entry');
+  } catch (err) {
+    closedVoidError = err.message;
+  }
+  testAssert(closedVoidError && closedVoidError.includes('Accounting period is closed'),
+    'voidTransaction in closed period strictly prohibited');
+
+  // Test 54: transferFund in closed period is rejected
+  let closedTransferError = null;
+  try {
+    await d1Ctrl.transferFund({
+      fromFundId: 'fund-lillah',
+      toFundId: 'fund-building',
+      amount: 10.00,
+      reason: 'Backdated inter-fund transfer',
+      date: '2025-03-20'
+    });
+  } catch (err) {
+    closedTransferError = err.message;
+  }
+  testAssert(closedTransferError && closedTransferError.includes('Accounting period is closed'),
+    'transferFund into closed period strictly prohibited');
+
+  // Test 55: reopenAccountingPeriod clears lock and permits backdated operations with audit trail
+  const reopenedOrg = await d1Ctrl.reopenAccountingPeriod('Trustee board resolution: audit adjustment approved');
+  testAssert(reopenedOrg.closed_until_date === null, 'Accounting period reopened (closed_until_date is null)');
+  const reopenAudit = await db.prepare("SELECT * FROM audit_logs WHERE action = 'PERIOD_REOPEN' ORDER BY timestamp DESC").first();
+  testAssert(reopenAudit && reopenAudit.metadata.includes('audit adjustment approved'), 'Immutable audit trail recorded for PERIOD_REOPEN');
+
+  const reopenedTx = await d1Ctrl.createTransaction({
+    type: 'INCOME',
+    status: 'BANKED',
+    method: 'CASH',
+    totalAmount: 40.00,
+    date: '2025-04-01',
+    category: 'Donation',
+    reference_note: 'Approved adjustment in reopened period',
+    splits: [{ fund_id: 'fund-lillah', amount: 40.00 }]
+  });
+  testAssert(reopenedTx && reopenedTx.id, 'createTransaction in previously closed period succeeds after reopen');
+
+  // Test 56: getCC16Statement returns balanced mathematical Charity Commission receipts & payments
+  const cc16 = await d1Ctrl.getCC16Statement({ fiscalYear: 2026 });
+  testAssert(Array.isArray(cc16.receipts) && Array.isArray(cc16.payments), 'CC16 statement includes receipts and payments arrays');
+  testAssert(cc16.totals.transfers.total === 0, 'CC16 transfers between funds strictly net to £0.00');
+  const expectedClosing = Math.round((cc16.totals.openingBalances.total + cc16.totals.netReceipts.total + cc16.totals.transfers.total) * 100);
+  const actualClosing = Math.round(cc16.totals.closingBalances.total * 100);
+  testAssert(expectedClosing === actualClosing, 'CC16 closing balance mathematically equals Opening + Net Receipts + Transfers');
+  const actualCashAssets = Math.round(cc16.assets.totalCashFunds * 100);
+  testAssert(actualCashAssets === actualClosing, 'CC16 Statement of Assets (Cash in hand + Cash at bank) matches closing funds carried forward');
+
   console.log("--------------------------------------------------");
   console.log(`D1 TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);
   console.log("--------------------------------------------------");

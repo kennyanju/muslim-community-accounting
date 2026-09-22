@@ -28,8 +28,13 @@ export function getSchemaSql() {
 function applySchemaMigrations(sqlite) {
   try {
     const orgCols = sqlite.prepare("PRAGMA table_info(organisations)").all().map(c => c.name);
-    if (orgCols.length > 0 && !orgCols.includes('approval_threshold_pence')) {
-      sqlite.exec("ALTER TABLE organisations ADD COLUMN approval_threshold_pence INTEGER DEFAULT 100000;");
+    if (orgCols.length > 0) {
+      if (!orgCols.includes('approval_threshold_pence')) {
+        sqlite.exec("ALTER TABLE organisations ADD COLUMN approval_threshold_pence INTEGER DEFAULT 100000;");
+      }
+      if (!orgCols.includes('closed_until_date')) {
+        sqlite.exec("ALTER TABLE organisations ADD COLUMN closed_until_date TEXT;");
+      }
     }
 
     const txTableRow = sqlite.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='transactions'").get();
