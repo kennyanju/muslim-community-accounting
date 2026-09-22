@@ -50,3 +50,6 @@ next-env.d.ts
 *.sqlite
 *.sqlite-*
 src/data/*.sqlite
+
+# generated audit artifacts
+audit_pack/

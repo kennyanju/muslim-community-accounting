@@ -553,8 +553,8 @@ export default function ReportsTab() {
                   </div>
                 )}
 
-                {/* 3 KPI Summary Cards */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+                {/* 4 KPI Summary Cards including HMRC GASDS */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '20px' }}>
                   <div className="glass-card" style={{ padding: '16px', borderRadius: '10px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)' }}>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block' }}>Unclaimed Eligible Donations</span>
                     <strong style={{ fontSize: '1.4rem', color: 'var(--text-primary)', display: 'block', margin: '4px 0' }}>
@@ -563,11 +563,20 @@ export default function ReportsTab() {
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{giftAidData?.count || 0} donations awaiting batching</span>
                   </div>
                   <div className="glass-card" style={{ padding: '16px', borderRadius: '10px', background: 'rgba(72, 187, 120, 0.05)', border: '1px solid rgba(72, 187, 120, 0.3)' }}>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--success-color, #48bb78)', display: 'block' }}>Recoverable Tax Relief (25%)</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--success-color, #48bb78)', display: 'block' }}>Standard Gift Aid (25%)</span>
                     <strong style={{ fontSize: '1.4rem', color: 'var(--success-color, #48bb78)', display: 'block', margin: '4px 0' }}>
                       {formatCurrency(giftAidData?.totalClaim || 0, org.currency_symbol)}
                     </strong>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>HMRC 25p per £1 donated</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Covered by signed declarations</span>
+                  </div>
+                  <div className="glass-card" style={{ padding: '16px', borderRadius: '10px', background: 'rgba(237, 137, 54, 0.05)', border: '1px solid rgba(237, 137, 54, 0.3)' }}>
+                    <span style={{ fontSize: '0.8rem', color: '#ed8936', display: 'block' }}>HMRC GASDS Small Cash Top-Up</span>
+                    <strong style={{ fontSize: '1.4rem', color: '#ed8936', display: 'block', margin: '4px 0' }}>
+                      {formatCurrency(giftAidData?.gasds?.top_up_claim_pounds || 0, org.currency_symbol)}
+                    </strong>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      25% on {formatCurrency(giftAidData?.gasds?.claimable_allowance_pounds || 0, org.currency_symbol)} loose cash (max £2,000)
+                    </span>
                   </div>
                   <div className="glass-card" style={{ padding: '16px', borderRadius: '10px', background: 'rgba(66, 153, 225, 0.05)', border: '1px solid rgba(66, 153, 225, 0.3)' }}>
                     <span style={{ fontSize: '0.8rem', color: 'var(--primary-color, #3182ce)', display: 'block' }}>Historical Claim Batches</span>

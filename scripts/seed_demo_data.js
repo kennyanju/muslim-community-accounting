@@ -8,45 +8,45 @@
 
 import { getD1Database } from '../src/lib/db-client.js';
 import { D1Controller } from '../src/lib/d1-controller.js';
+import { hashPassword } from '../src/lib/auth.js';
 
-console.log("==================================================================");
-console.log("SEEDING DEMONSTRATION & AUDIT DATASET: BRISTOL CENTRAL MOSQUE");
-console.log("==================================================================");
+async function seedDemoData() {
+  console.log("==================================================================");
+  console.log("SEEDING DEMONSTRATION & AUDIT DATASET: BRISTOL CENTRAL MOSQUE");
+  console.log("==================================================================");
 
-async function seed() {
   const db = await getD1Database();
-  const sqlite = db.getRawDb();
   const adminCtrl = new D1Controller('ADMIN', 'user-sec-1', 'Financial Secretary', 'secretary@bsmc.org.uk', db);
+  const sqlite = db.getRawDb();
 
   // 1. Organisation Profile
   console.log("🏛️ 1. Updating Organisation Profile...");
   sqlite.prepare(`
     INSERT INTO organisations (
-      id, name, short_name, charity_number, address, currency_symbol,
-      country, fiscal_year_start, approval_threshold_pence,
-      closed_until_date, receipt_counter, updated_at
+      id, name, short_name, charity_number, currency_symbol, fiscal_year_start,
+      address, email, phone, approval_threshold_pence, closed_until_date
     ) VALUES (
-      'main',
+      'org-bsmc',
       'Bristol Central Mosque & Islamic Centre',
       'BSMC',
       '1189420',
-      '123-125 St Marks Road, Easton, Bristol, BS5 6HX',
       '£',
-      'United Kingdom',
       '04-06',
-      100000,
-      '2025-04-05',
-      1520,
-      datetime('now')
+      '100 Mosque Road, Easton, Bristol, BS5 0AA',
+      'finance@bristolmosque.org.uk',
+      '0117 955 0000',
+      100000, -- £1,000 threshold for dual-approval
+      '2025-04-05' -- Prior fiscal year audited and closed
     )
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       short_name = excluded.short_name,
       charity_number = excluded.charity_number,
-      address = excluded.address,
       currency_symbol = excluded.currency_symbol,
-      country = excluded.country,
       fiscal_year_start = excluded.fiscal_year_start,
+      address = excluded.address,
+      email = excluded.email,
+      phone = excluded.phone,
       approval_threshold_pence = excluded.approval_threshold_pence,
       closed_until_date = excluded.closed_until_date,
       updated_at = datetime('now');
@@ -54,10 +54,11 @@ async function seed() {
 
   // 2. Users (Admin, Reviewer, Auditor)
   console.log("👥 2. Seeding Governance Users...");
+  const demoHash = hashPassword('password123');
   const users = [
-    { id: 'user-sec-1', name: 'Br. Farooq Patel', email: 'secretary@bsmc.org.uk', role: 'ADMIN', status: 'ACTIVE', password_hash: '$2a$10$abcdefghijklmnopqrstuvwxyz012345' },
-    { id: 'user-rev-1', name: 'Dr. Tariq Mahmood', email: 'reviewer@bsmc.org.uk', role: 'REVIEWER', status: 'ACTIVE', password_hash: '$2a$10$abcdefghijklmnopqrstuvwxyz012345' },
-    { id: 'user-aud-1', name: 'Sister Aisha Khan (FCCA)', email: 'auditor@bsmc.org.uk', role: 'AUDITOR', status: 'ACTIVE', password_hash: '$2a$10$abcdefghijklmnopqrstuvwxyz012345' }
+    { id: 'user-sec-1', name: 'Br. Farooq Patel', email: 'secretary@bsmc.org.uk', role: 'ADMIN', status: 'ACTIVE', password_hash: demoHash },
+    { id: 'user-rev-1', name: 'Dr. Tariq Mahmood', email: 'reviewer@bsmc.org.uk', role: 'REVIEWER', status: 'ACTIVE', password_hash: demoHash },
+    { id: 'user-aud-1', name: 'Sister Aisha Khan (FCCA)', email: 'auditor@bsmc.org.uk', role: 'AUDITOR', status: 'ACTIVE', password_hash: demoHash }
   ];
 
   for (const u of users) {
@@ -413,7 +414,7 @@ async function seed() {
   console.log("==================================================================");
 }
 
-seed().catch(err => {
+seedDemoData().catch(err => {
   console.error("❌ Seed script failed:", err);
   process.exit(1);
 });

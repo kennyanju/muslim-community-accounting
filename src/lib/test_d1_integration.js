@@ -2,6 +2,7 @@ import assert from 'assert';
 import { getD1Database } from './db-client.js';
 import { DatabaseController, readDB } from './db.js';
 import { migrateJsonToD1 } from './db-migrate.js';
+import { sendDonationReceiptEmail } from './email-service.js';
 
 console.log("--------------------------------------------------");
 console.log("RUNNING CLOUDFLARE D1 & 10X BUSINESS LOGIC TESTS");
@@ -1009,6 +1010,28 @@ async function runD1TestSuite() {
   testAssert(expectedClosing === actualClosing, 'CC16 closing balance mathematically equals Opening + Net Receipts + Transfers');
   const actualCashAssets = Math.round(cc16.assets.totalCashFunds * 100);
   testAssert(actualCashAssets === actualClosing, 'CC16 Statement of Assets (Cash in hand + Cash at bank) matches closing funds carried forward');
+
+  // Test 57: getGASDSSummary accurately aggregates small cash gifts up to £8,000 allowance
+  const gasds = await d1Ctrl.getGASDSSummary({ fiscalYear: 2026 });
+  testAssert(gasds.max_statutory_cap_pounds === 8000, 'GASDS statutory cap is £8,000');
+  testAssert(gasds.top_up_claim_pounds === gasds.claimable_allowance_pounds * 0.25, 'GASDS 25% top-up claim mathematically accurate');
+  testAssert(gasds.claimable_allowance_pounds <= 8000, 'GASDS claimable allowance does not exceed statutory cap');
+
+  // Test 58: sendDonationReceiptEmail dispatches formatted receipt
+  const receiptEmailResult = await sendDonationReceiptEmail({
+    to: 'donor.test@example.org.uk',
+    donorName: 'Br. Tariq Ramadan',
+    receiptDoc: {
+      number: 'BSMC-2026-TEST',
+      date: '2026-09-20',
+      to: 'Br. Tariq Ramadan\n12 Green Lane, Bristol, BS5 0AA',
+      giftAid: true,
+      items: [{ desc: 'Zakat al-Mal', qty: 1, amount: 250.00 }]
+    },
+    org: await d1Ctrl.getOrganisation()
+  });
+  testAssert(receiptEmailResult.success === true, 'sendDonationReceiptEmail dispatches formatted receipt');
+  testAssert(receiptEmailResult.mode === 'mock' || receiptEmailResult.mode === 'resend', 'sendDonationReceiptEmail returns valid delivery mode');
 
   console.log("--------------------------------------------------");
   console.log(`D1 TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);

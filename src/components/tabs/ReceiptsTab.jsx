@@ -22,6 +22,11 @@ export default function ReceiptsTab({ preloadedTx }) {
     ]
   });
 
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  const [emailStatus, setEmailStatus] = useState(null);
+
   const lastLoadedTxId = React.useRef(null);
 
   const handleTransactionSelect = React.useCallback((txId) => {
@@ -31,6 +36,12 @@ export default function ReceiptsTab({ preloadedTx }) {
     const donor = (donors || []).find(d => d.id === tx.donor_id);
     const donorAddr = donor ? [donor.address_line_1, donor.address_line_2, donor.city, donor.postcode].filter(Boolean).join(', ') : 'Anonymous';
     const formattedNum = tx.receipt_number || `${(org?.short_name || 'BSMC').replace(/[^a-zA-Z0-9]/g, '')}-${tx.id.substring(0, 8)}`;
+
+    if (donor?.email) {
+      setRecipientEmail(donor.email);
+    } else {
+      setRecipientEmail('');
+    }
 
     const items = (tx.splits && tx.splits.length > 0)
       ? tx.splits.map(s => ({
@@ -73,8 +84,42 @@ export default function ReceiptsTab({ preloadedTx }) {
         to: `${d.name}\n${addr}`,
         giftAid: d.gift_aid_eligible
       }));
+      if (d.email) setRecipientEmail(d.email);
     } else {
       setReceiptDoc(prev => ({ ...prev, donorId: '', to: '', giftAid: false }));
+      setRecipientEmail('');
+    }
+  };
+
+  const handleSendEmail = async (e) => {
+    if (e) e.preventDefault();
+    if (!recipientEmail || !recipientEmail.includes('@')) {
+      setEmailStatus({ type: 'error', text: 'Please enter a valid recipient email address' });
+      return;
+    }
+    setIsSendingEmail(true);
+    setEmailStatus(null);
+    try {
+      const res = await fetch('/api/receipts/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: recipientEmail,
+          donorName: receiptDoc.to.split('\n')[0] || 'Donor',
+          receiptDoc
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || data.message || 'Failed to dispatch receipt');
+      setEmailStatus({ type: 'success', text: `Receipt dispatched successfully to ${recipientEmail}!` });
+      setTimeout(() => {
+        setShowEmailModal(false);
+        setEmailStatus(null);
+      }, 2000);
+    } catch (err) {
+      setEmailStatus({ type: 'error', text: err.message });
+    } finally {
+      setIsSendingEmail(false);
     }
   };
 
@@ -225,11 +270,25 @@ export default function ReceiptsTab({ preloadedTx }) {
         </div>
 
         <div className="invoice-preview-panel glass-card">
-          <div className="preview-actions">
+          <div className="preview-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h4>Document Preview</h4>
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => window.print()}>
-              <span aria-hidden="true">🖨️</span> Print / Save PDF
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button 
+                type="button" 
+                className="btn btn-outline btn-sm" 
+                onClick={() => {
+                  setEmailStatus(null);
+                  setShowEmailModal(true);
+                }}
+                disabled={receiptDoc.isVoided}
+                title={receiptDoc.isVoided ? "Cannot email voided receipts" : "Email official receipt to donor"}
+              >
+                <span aria-hidden="true">📧</span> Email Receipt
+              </button>
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => window.print()}>
+                <span aria-hidden="true">🖨️</span> Print / Save PDF
+              </button>
+            </div>
           </div>
 
           {receiptDoc.isVoided && (
@@ -319,6 +378,68 @@ export default function ReceiptsTab({ preloadedTx }) {
           </div>
         </div>
       </div>
+
+      {showEmailModal && (
+        <div className="modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' }}>
+          <div className="glass-card" style={{ maxWidth: '460px', width: '100%', padding: '24px', borderRadius: '12px', background: 'var(--bg-card, #1a202c)', color: 'var(--text-primary, #fff)', border: '1px solid var(--border-color, #2d3748)', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)' }}>
+            <h3 style={{ marginTop: 0, marginBottom: '8px', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>📧</span> Email Official Receipt
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary, #a0aec0)', marginBottom: '16px' }}>
+              Send branded donation receipt <strong>{receiptDoc.number}</strong> directly to the donor.
+            </p>
+
+            {emailStatus && (
+              <div style={{
+                padding: '10px 14px',
+                borderRadius: '6px',
+                marginBottom: '14px',
+                fontSize: '0.85rem',
+                background: emailStatus.type === 'success' ? 'rgba(72, 187, 120, 0.15)' : 'rgba(229, 62, 62, 0.15)',
+                color: emailStatus.type === 'success' ? 'var(--success-color, #48bb78)' : 'var(--danger-color, #e53e3e)',
+                border: `1px solid ${emailStatus.type === 'success' ? 'var(--success-color, #48bb78)' : 'var(--danger-color, #e53e3e)'}`
+              }}>
+                {emailStatus.text}
+              </div>
+            )}
+
+            <form onSubmit={handleSendEmail}>
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label htmlFor="modal-recipient-email" style={{ display: 'block', fontSize: '0.85rem', marginBottom: '6px' }}>
+                  Recipient Email Address *
+                </label>
+                <input
+                  id="modal-recipient-email"
+                  type="email"
+                  required
+                  placeholder="donor@example.com"
+                  value={recipientEmail}
+                  onChange={e => setRecipientEmail(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-input, #2d3748)', color: '#fff' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={() => setShowEmailModal(false)}
+                  disabled={isSendingEmail}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                  disabled={isSendingEmail}
+                >
+                  {isSendingEmail ? 'Sending...' : 'Send Receipt'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

@@ -146,13 +146,20 @@ export async function GET(request) {
       };
     });
 
+    const gasds = await controller.getGASDSSummary({
+      fiscalYear: fiscalYearParam,
+      startDate: dateFrom,
+      endDate: dateTo
+    });
+
     return apiSuccess({
       claimable: formatted,
       totalDonations: Math.round(totalDonations * 100) / 100,
       totalClaim: Math.round(totalClaim * 100) / 100,
       count: formatted.length,
       periodStart: dateFrom,
-      periodEnd: dateTo
+      periodEnd: dateTo,
+      gasds
     }, { headers: rateGuard.headers });
   }
 

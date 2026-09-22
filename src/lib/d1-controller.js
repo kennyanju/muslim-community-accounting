@@ -1132,6 +1132,69 @@ export class D1Controller {
     };
   }
 
+  async getGASDSSummary(filters = {}) {
+    const db = await this.getDb();
+    const org = await this.getOrganisation();
+    let start = filters.startDate;
+    let end = filters.endDate;
+
+    if (!start || !end) {
+      const bounds = getFiscalYearBounds(filters.fiscalYear || new Date(), org.fiscal_year_start || '04-06');
+      start = bounds.startDate || bounds.start;
+      end = bounds.endDate || bounds.end;
+    }
+
+    // HMRC GASDS: Small cash donations <= £30 (3,000 pence) or loose Jummah collections without Gift Aid declarations
+    const rowsRes = await db.prepare(`
+      SELECT id, transaction_date, total_amount, method, is_jummah, reference_note
+      FROM transactions
+      WHERE type = 'INCOME'
+        AND status != 'VOIDED'
+        AND (gift_aid = 0 OR gift_aid IS NULL)
+        AND transaction_date >= ?
+        AND transaction_date <= ?
+        AND (
+          (method = 'CASH' AND total_amount <= 3000)
+          OR is_jummah = 1
+        )
+      ORDER BY transaction_date ASC
+    `).bind(start, end).all();
+
+    const transactions = rowsRes.results || [];
+    const totalEligiblePence = transactions.reduce((acc, t) => acc + (t.total_amount || 0), 0);
+    const maxStatutoryCapPence = 800000; // £8,000.00 HMRC statutory allowance per tax year
+    const claimableAllowancePence = Math.min(totalEligiblePence, maxStatutoryCapPence);
+    const topUpClaimPence = Math.round(claimableAllowancePence * 0.25); // 25% HMRC top-up (max £2,000.00)
+    const remainingCapPence = Math.max(0, maxStatutoryCapPence - totalEligiblePence);
+
+    return {
+      fiscal_year: filters.fiscalYear || (start ? start.substring(0, 4) : new Date().getFullYear()),
+      start_date: start,
+      end_date: end,
+      eligible_transaction_count: transactions.length,
+      total_eligible_pence: totalEligiblePence,
+      total_eligible_pounds: totalEligiblePence / 100,
+      max_statutory_cap_pence: maxStatutoryCapPence,
+      max_statutory_cap_pounds: maxStatutoryCapPence / 100,
+      claimable_allowance_pence: claimableAllowancePence,
+      claimable_allowance_pounds: claimableAllowancePence / 100,
+      top_up_claim_pence: topUpClaimPence,
+      top_up_claim_pounds: topUpClaimPence / 100,
+      remaining_cap_pence: remainingCapPence,
+      remaining_cap_pounds: remainingCapPence / 100,
+      cap_reached: totalEligiblePence >= maxStatutoryCapPence,
+      transactions: transactions.map(t => ({
+        id: t.id,
+        date: t.transaction_date,
+        amount: (t.total_amount || 0) / 100,
+        amount_pence: t.total_amount || 0,
+        method: t.method,
+        is_jummah: Boolean(t.is_jummah),
+        note: t.reference_note
+      }))
+    };
+  }
+
   // -------------------------------------------------------------
   // TRANSACTIONS & SPLITS (Items #4, #11, #12, #21, #22)
   // -------------------------------------------------------------

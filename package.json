@@ -13,7 +13,8 @@
     "seed": "node scripts/seed_demo_data.js",
     "lint": "eslint",
     "analyze": "ANALYZE=true next build --webpack",
-    "check-budget": "node scripts/check_budgets.js"
+    "check-budget": "node scripts/check_budgets.js",
+    "audit:pack": "node scripts/generate_audit_pack.js"
   },
   "dependencies": {
     "next": "^16.3.3",
