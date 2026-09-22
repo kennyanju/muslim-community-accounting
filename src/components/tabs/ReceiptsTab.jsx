@@ -5,7 +5,8 @@ import { useApp } from '@/context/AppContext';
 import { formatCurrency } from '@/utils/formatters';
 
 export default function ReceiptsTab({ preloadedTx }) {
-  const { donors, org } = useApp();
+  const { donors, org, transactions } = useApp();
+  const [selectedTxId, setSelectedTxId] = useState('');
 
   const [receiptDoc, setReceiptDoc] = useState({
     number: `${(org?.short_name || 'BSMC').replace(/[^a-zA-Z0-9]/g, '')}-${new Date().getFullYear()}-0001`,
@@ -15,6 +16,7 @@ export default function ReceiptsTab({ preloadedTx }) {
     from: `${org?.name || 'Bristol South Muslim Community'}\n${org?.address || '100 Mosque Road, Bristol, BS3 1AB'}\nCharity No: ${org?.charity_number || '1234567'}\nEmail: ${org?.email || 'finance@bsmc.org.uk'}`,
     to: '',
     giftAid: false,
+    isVoided: false,
     items: [
       { desc: 'General Mosque Lillah & Maintenance Contribution', qty: 1, amount: 100.00 }
     ]
@@ -22,28 +24,44 @@ export default function ReceiptsTab({ preloadedTx }) {
 
   const lastLoadedTxId = React.useRef(null);
 
+  const handleTransactionSelect = React.useCallback((txId) => {
+    setSelectedTxId(txId);
+    const tx = (transactions || []).find(t => t.id === txId);
+    if (!tx) return;
+    const donor = (donors || []).find(d => d.id === tx.donor_id);
+    const donorAddr = donor ? [donor.address_line_1, donor.address_line_2, donor.city, donor.postcode].filter(Boolean).join(', ') : 'Anonymous';
+    const formattedNum = tx.receipt_number || `${(org?.short_name || 'BSMC').replace(/[^a-zA-Z0-9]/g, '')}-${tx.id.substring(0, 8)}`;
+
+    const items = (tx.splits && tx.splits.length > 0)
+      ? tx.splits.map(s => ({
+          desc: `${tx.category || 'Donation'} (${s.fundName || s.name || 'General Fund'}) - ${tx.reference_note || 'Contribution'}`,
+          qty: 1,
+          amount: parseFloat(s.amount) || 0
+        }))
+      : [{
+          desc: `${tx.category || 'Donation'} - ${tx.reference_note || 'Contribution'}`,
+          qty: 1,
+          amount: parseFloat(tx.total_amount) || 0
+        }];
+
+    setReceiptDoc(prev => ({
+      ...prev,
+      number: formattedNum,
+      date: tx.transaction_date,
+      donorId: tx.donor_id || '',
+      to: `${donor ? donor.name : (tx.donorName || 'Anonymous Donor')}\n${donorAddr}`,
+      giftAid: Boolean(tx.giftAid),
+      isVoided: tx.status === 'VOIDED',
+      items
+    }));
+  }, [transactions, donors, org]);
+
   useEffect(() => {
     if (preloadedTx && preloadedTx.id !== lastLoadedTxId.current) {
       lastLoadedTxId.current = preloadedTx.id;
-      const donor = donors.find(d => d.id === preloadedTx.donor_id);
-      const donorAddr = donor ? [donor.address_line_1, donor.address_line_2, donor.city, donor.postcode].filter(Boolean).join(', ') : 'Anonymous';
-      const formattedNum = preloadedTx.receipt_number || `${(org?.short_name || 'BSMC').replace(/[^a-zA-Z0-9]/g, '')}-${preloadedTx.id.substring(0, 8)}`;
-
-      setReceiptDoc(prev => ({
-        ...prev,
-        number: formattedNum,
-        date: preloadedTx.transaction_date,
-        donorId: preloadedTx.donor_id,
-        to: `${donor ? donor.name : 'Anonymous Donor'}\n${donorAddr}`,
-        giftAid: preloadedTx.giftAid,
-        items: [{
-          desc: `${preloadedTx.category || 'Donation'} - ${preloadedTx.reference_note || preloadedTx.description || 'Contribution'}`,
-          qty: 1,
-          amount: parseFloat(preloadedTx.total_amount) || 0
-        }]
-      }));
+      handleTransactionSelect(preloadedTx.id);
     }
-  }, [preloadedTx, donors, org]);
+  }, [preloadedTx, handleTransactionSelect]);
 
   const handleDonorSelect = (donorId) => {
     const d = donors.find(donor => donor.id === donorId);
@@ -77,13 +95,35 @@ export default function ReceiptsTab({ preloadedTx }) {
         <div className="invoice-form-panel glass-card">
           <h3>Document Customizer</h3>
           <form onSubmit={e => e.preventDefault()}>
+            {receiptDoc.type === 'receipt' && (
+              <div className="form-group" style={{ marginBottom: '14px' }}>
+                <label htmlFor="receipt-tx-select">Bind to Posted Income Transaction (D1 Ledger) *</label>
+                <select
+                  id="receipt-tx-select"
+                  value={selectedTxId}
+                  onChange={e => handleTransactionSelect(e.target.value)}
+                >
+                  <option value="">-- Choose a Posted Transaction --</option>
+                  {(transactions || [])
+                    .filter(t => t.type === 'INCOME')
+                    .map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.receipt_number || t.id} | {t.transaction_date} | {t.donorName || 'Anonymous'} | {org.currency_symbol || '£'}{parseFloat(t.total_amount).toFixed(2)} {t.status === 'VOIDED' ? '[VOIDED]' : ''}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            )}
+
             <div className="form-row-2">
               <div className="form-group">
-                <label htmlFor="receipt-ref">Document Ref No.</label>
+                <label htmlFor="receipt-ref">Document Ref No. {receiptDoc.type === 'receipt' && '(Locked)'}</label>
                 <input 
                   id="receipt-ref"
                   type="text" 
                   value={receiptDoc.number} 
+                  readOnly={receiptDoc.type === 'receipt'}
+                  style={receiptDoc.type === 'receipt' ? { backgroundColor: 'var(--bg-subtle)' } : {}}
                   onChange={e => updateReceipt({ number: e.target.value })} 
                 />
               </div>
@@ -102,11 +142,13 @@ export default function ReceiptsTab({ preloadedTx }) {
 
             <div className="form-row-2">
               <div className="form-group">
-                <label htmlFor="receipt-date">Issue Date</label>
+                <label htmlFor="receipt-date">Issue Date {receiptDoc.type === 'receipt' && '(Locked)'}</label>
                 <input 
                   id="receipt-date"
                   type="date" 
                   value={receiptDoc.date} 
+                  readOnly={receiptDoc.type === 'receipt'}
+                  style={receiptDoc.type === 'receipt' ? { backgroundColor: 'var(--bg-subtle)' } : {}}
                   onChange={e => updateReceipt({ date: e.target.value })} 
                 />
               </div>
@@ -189,6 +231,12 @@ export default function ReceiptsTab({ preloadedTx }) {
               <span aria-hidden="true">🖨️</span> Print / Save PDF
             </button>
           </div>
+
+          {receiptDoc.isVoided && (
+            <div style={{ background: 'var(--danger-light)', color: '#b91c1c', border: '2px dashed #b91c1c', padding: '10px 14px', borderRadius: '6px', textAlign: 'center', fontWeight: 'bold', marginBottom: '12px' }}>
+              ⚠️ VOIDED TRANSACTION - THIS RECEIPT IS CANCELLED &amp; INVALID
+            </div>
+          )}
 
           <div className="invoice-paper">
             <div className="invoice-paper-header">

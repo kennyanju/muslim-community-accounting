@@ -186,6 +186,11 @@ export function validateClientJummah(form) {
 
   if (!form.date) {
     errors.date = 'Collection date is required.';
+  } else {
+    const d = new Date(form.date + 'T12:00:00Z');
+    if (d.getUTCDay() !== 5) {
+      errors.date = 'Jummah collections must occur on a Friday.';
+    }
   }
 
   if (!form.counter1 || !form.counter1.trim()) {
@@ -196,6 +201,19 @@ export function validateClientJummah(form) {
     errors.counter2 = 'Counter 2 full name is mandatory for dual-witness cash control.';
   } else if (form.counter1 && form.counter1.trim().toLowerCase() === form.counter2.trim().toLowerCase()) {
     errors.counter2 = 'Counter 1 and Counter 2 must be two distinct individuals.';
+  }
+
+  if (form.notes_50_count || form.notes_20_count || form.notes_10_count || form.notes_5_count || form.coins_total) {
+    const n50 = parseInt(form.notes_50_count || 0, 10);
+    const n20 = parseInt(form.notes_20_count || 0, 10);
+    const n10 = parseInt(form.notes_10_count || 0, 10);
+    const n5 = parseInt(form.notes_5_count || 0, 10);
+    const coins = Math.round(parseFloat(form.coins_total || 0) * 100);
+    const denomTotal = (n50 * 5000) + (n20 * 2000) + (n10 * 1000) + (n5 * 500) + coins;
+    const totalPence = Math.round((total || 0) * 100);
+    if (denomTotal > 0 && denomTotal !== totalPence) {
+      errors.denominations = `Denominations breakdown (£${(denomTotal / 100).toFixed(2)}) does not match total cash amount (£${(totalPence / 100).toFixed(2)}).`;
+    }
   }
 
   if (!form.splits || form.splits.length === 0) {

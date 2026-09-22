@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS organisations (
   zakat_surplus_alert_pence INTEGER DEFAULT 500000, -- £5,000 alert threshold
   zakat_reserve_min_pence INTEGER DEFAULT 20000, -- £200 minimum reserve threshold
   large_donation_threshold_pence INTEGER DEFAULT 50000, -- £500 large donation threshold
+  approval_threshold_pence INTEGER DEFAULT 100000, -- £1,000 default threshold for dual approval
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -71,7 +72,7 @@ CREATE TABLE IF NOT EXISTS donors (
 CREATE TABLE IF NOT EXISTS transactions (
   id TEXT PRIMARY KEY,
   type TEXT NOT NULL CHECK (type IN ('INCOME', 'EXPENSE')),
-  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'BANKED', 'VOIDED', 'FAILED')),
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'BANKED', 'VOIDED', 'FAILED', 'PENDING_APPROVAL')),
   method TEXT NOT NULL DEFAULT 'CASH',
   total_amount INTEGER NOT NULL, -- Exact integer pence (e.g. 10000 = £100.00)
   transaction_date TEXT NOT NULL,
@@ -87,6 +88,12 @@ CREATE TABLE IF NOT EXISTS transactions (
   reconciled_by TEXT,
   bank_statement_ref TEXT,
   is_jummah INTEGER DEFAULT 0, -- First-class Friday collection tracking
+  approval_status TEXT NOT NULL DEFAULT 'NOT_REQUIRED' CHECK (approval_status IN ('NOT_REQUIRED', 'PENDING', 'APPROVED', 'REJECTED')),
+  approved_by TEXT REFERENCES users(id),
+  approved_at TEXT,
+  rejected_by TEXT REFERENCES users(id),
+  rejected_at TEXT,
+  rejection_reason TEXT,
   void_reason TEXT,
   voided_at TEXT,
   voided_by TEXT,
@@ -192,6 +199,62 @@ CREATE TABLE IF NOT EXISTS processed_webhook_events (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- 15. Gift Aid Declarations (Dated Validity, Cancellation & HMRC Evidence)
+CREATE TABLE IF NOT EXISTS gift_aid_declarations (
+  id TEXT PRIMARY KEY,
+  donor_id TEXT NOT NULL REFERENCES donors(id) ON DELETE CASCADE,
+  scope TEXT NOT NULL CHECK (scope IN ('ONE_OFF', 'PAST_PRESENT_FUTURE', 'SINCE_DATE')),
+  start_date TEXT NOT NULL,
+  end_date TEXT,
+  cancellation_date TEXT,
+  status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'CANCELLED', 'EXPIRED')),
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT
+);
+
+-- 16. HMRC Gift Aid Claims Batches
+CREATE TABLE IF NOT EXISTS gift_aid_claims (
+  id TEXT PRIMARY KEY,
+  claim_reference TEXT NOT NULL UNIQUE,
+  period_start TEXT NOT NULL,
+  period_end TEXT NOT NULL,
+  total_donations_pence INTEGER NOT NULL,
+  total_claim_pence INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'SUBMITTED' CHECK (status IN ('DRAFT', 'SUBMITTED', 'ACCEPTED', 'REJECTED')),
+  submitted_at TEXT,
+  submitted_by TEXT REFERENCES users(id),
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- 17. HMRC Gift Aid Claim Items (Immutable Inclusion - Prevents Duplicate Claims)
+CREATE TABLE IF NOT EXISTS gift_aid_claim_items (
+  id TEXT PRIMARY KEY,
+  claim_id TEXT NOT NULL REFERENCES gift_aid_claims(id) ON DELETE CASCADE,
+  transaction_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+  donation_amount_pence INTEGER NOT NULL,
+  claim_amount_pence INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(transaction_id)
+);
+
+-- 18. Jummah Collections Sheet (Dual Witness Attestations & Denominations)
+CREATE TABLE IF NOT EXISTS jummah_collections (
+  id TEXT PRIMARY KEY,
+  transaction_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+  collection_date TEXT NOT NULL,
+  notes_50_count INTEGER DEFAULT 0,
+  notes_20_count INTEGER DEFAULT 0,
+  notes_10_count INTEGER DEFAULT 0,
+  notes_5_count INTEGER DEFAULT 0,
+  coins_total_pence INTEGER DEFAULT 0,
+  total_pence INTEGER NOT NULL,
+  counter_1_name TEXT NOT NULL,
+  counter_2_name TEXT NOT NULL,
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- ==============================================================================
 -- Indexes for High-Performance Queries & Reporting
@@ -204,6 +267,7 @@ CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions(category);
 CREATE INDEX IF NOT EXISTS idx_tx_reconciled ON transactions(reconciled);
 CREATE INDEX IF NOT EXISTS idx_tx_created_by ON transactions(created_by);
 CREATE INDEX IF NOT EXISTS idx_tx_jummah ON transactions(is_jummah);
+CREATE INDEX IF NOT EXISTS idx_tx_approval_status ON transactions(approval_status);
 
 CREATE INDEX IF NOT EXISTS idx_splits_tx ON transaction_splits(transaction_id);
 CREATE INDEX IF NOT EXISTS idx_splits_fund ON transaction_splits(fund_id);
@@ -229,3 +293,12 @@ CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read_at);
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_created ON backup_snapshots(created_at);
 CREATE INDEX IF NOT EXISTS idx_webhook_events_provider ON processed_webhook_events(provider);
+
+CREATE INDEX IF NOT EXISTS idx_gadecl_donor ON gift_aid_declarations(donor_id);
+CREATE INDEX IF NOT EXISTS idx_gadecl_dates ON gift_aid_declarations(start_date, end_date, cancellation_date);
+CREATE INDEX IF NOT EXISTS idx_gaclaim_items_tx ON gift_aid_claim_items(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_gaclaim_items_claim ON gift_aid_claim_items(claim_id);
+
+CREATE INDEX IF NOT EXISTS idx_jummah_coll_date ON jummah_collections(collection_date);
+CREATE INDEX IF NOT EXISTS idx_jummah_coll_tx ON jummah_collections(transaction_id);
+

@@ -269,7 +269,7 @@ export function getSafeUser(user) {
  */
 export const ROLE_PERMISSIONS = {
   ADMIN: ['*'],
-  REVIEWER: ['read:all', 'export:reports', 'print:receipts'],
+  REVIEWER: ['read:all', 'export:reports', 'print:receipts', 'approve:transactions'],
   AUDITOR: ['read:all', 'export:reports', 'export:giftaid', 'read:audits', 'print:receipts'],
 };
 

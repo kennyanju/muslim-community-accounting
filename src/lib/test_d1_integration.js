@@ -223,13 +223,14 @@ async function runD1TestSuite() {
     status: 'PENDING',
     method: 'CASH',
     totalAmount: 150.50, // £150.50 -> 15050 pence in D1
-    date: '2026-09-20',
+    date: '2026-09-18', // Valid Friday
     donorId: d1DonorId,
     reference_note: 'Jummah donation for building fund',
     category: 'Donation',
     giftAid: true,
-
     isJummah: true,
+    counter_1_name: 'Imam Bilal',
+    counter_2_name: 'Brother Farooq',
     splits: [
       { fund_id: 'fund-building', amount: 100.00 },
       { fund_id: 'fund-lillah', amount: 50.50 }
@@ -383,6 +384,7 @@ async function runD1TestSuite() {
   testAssert(ribaTx.splits && ribaTx.splits.length === 1 && ribaTx.splits[0].fund_id === 'fund-riba', 'D1 auto-routed Interest income into Interest/Riba fund');
 
   // Test 26: Last Active Administrator Protection in D1 (Governance)
+  await db.prepare("UPDATE users SET role = 'REVIEWER' WHERE id = 'user-d1-admin'").run();
   try {
     await d1Ctrl.updateUser('user-sec-1', { role: 'AUDITOR' });
     testAssert(false, 'Should block demoting the last active administrator');
@@ -597,6 +599,313 @@ async function runD1TestSuite() {
 
   const unreadAlert = await db.prepare(`SELECT id FROM notifications WHERE type = 'ZAKAT_SURPLUS' AND read_at IS NULL LIMIT 1`).first();
   testAssert(unreadAlert && unreadAlert.id, 'Active unread Zakat surplus alert identified for deduplication');
+
+  // Ensure test users exist in SQLite with appropriate roles for foreign key constraints
+  await db.prepare(`
+    INSERT INTO users (id, name, email, role, password_hash, created_at)
+    VALUES ('user-d1-admin', 'D1 Admin', 'admin@masjid.org.uk', 'REVIEWER', 'test-hash', datetime('now'))
+    ON CONFLICT(id) DO UPDATE SET role = 'REVIEWER'
+  `).run();
+
+  await db.prepare(`
+    INSERT INTO users (id, name, email, role, password_hash, created_at)
+    VALUES ('user-reviewer-1', 'Trustee Reviewer', 'reviewer@masjid.org.uk', 'REVIEWER', 'test-hash', datetime('now'))
+    ON CONFLICT(id) DO UPDATE SET role = 'REVIEWER'
+  `).run();
+
+  // --------------------------------------------------------------------------
+  // ITEM 1: Maker-Checker Dual Approval Workflow Tests (Tests 39-43)
+  // --------------------------------------------------------------------------
+  // Test 39: EXPENSE exceeding £1,000 threshold or touching restricted funds triggers PENDING_APPROVAL
+  const highExpenseTx = await d1Ctrl.createTransaction({
+    type: 'EXPENSE',
+    status: 'BANKED',
+    method: 'BANK_TRANSFER',
+    totalAmount: 1250.00,
+    date: '2026-09-22',
+    category: 'Repairs & Maintenance',
+    reference_note: 'Minaret structural repair contractor invoice #981',
+    splits: [{ fund_id: 'fund-building', amount: 1250.00 }]
+  });
+  testAssert(highExpenseTx.status === 'PENDING_APPROVAL', 'Large expense (>£1,000) routed to PENDING_APPROVAL status');
+  testAssert(highExpenseTx.approval_status === 'PENDING', 'approval_status marked PENDING on high value expense');
+
+  const zakatExpenseTx = await d1Ctrl.createTransaction({
+    type: 'EXPENSE',
+    status: 'BANKED',
+    method: 'CASH',
+    totalAmount: 45.00, // Small amount, but restricted Zakat fund
+    date: '2026-09-22',
+    category: 'Charitable Payout',
+    reference_note: 'Urgent food relief for refugee family',
+    splits: [{ fund_id: 'fund-zakat', amount: 45.00 }]
+  });
+  testAssert(zakatExpenseTx.status === 'PENDING_APPROVAL', 'Restricted fund expense routed to PENDING_APPROVAL regardless of amount');
+
+  // Test 40: Fund balances exclude PENDING_APPROVAL transactions
+  const balancesBeforeApproval = await d1Ctrl.getBalances();
+  const buildingFundBefore = balancesBeforeApproval.find(f => f.fundId === 'fund-building');
+  testAssert(buildingFundBefore && typeof buildingFundBefore.balance === 'number', 'Retrieved active building fund balance');
+
+  // Test 41: Strict no-self-approval rule
+  try {
+    await d1Ctrl.approveTransaction(highExpenseTx.id);
+    testAssert(false, 'Should block creator from self-approving their own transaction');
+  } catch (err) {
+    testAssert(err.message.includes('Approver cannot approve their own transaction'), 'Strictly blocked transaction creator self-approval');
+  }
+
+  // Test 42: Authorized reviewer approval
+  const reviewerCtrl = new D1Controller('REVIEWER', 'user-reviewer-1', 'Trustee Reviewer', 'reviewer@masjid.org.uk');
+  const approvedTx = await reviewerCtrl.approveTransaction(highExpenseTx.id);
+  testAssert(approvedTx.status === 'BANKED', 'Approved transaction transitioned to BANKED status');
+  testAssert(approvedTx.approval_status === 'APPROVED', 'Transaction approval_status marked APPROVED');
+  testAssert(approvedTx.approved_by === 'user-reviewer-1', 'approved_by correctly attributed to reviewer');
+
+  const balancesAfterApproval = await d1Ctrl.getBalances();
+  const buildingFundAfter = balancesAfterApproval.find(f => f.fundId === 'fund-building');
+  const expectedBuildingBalance = Math.round((buildingFundBefore.balance - 1250) * 100);
+  const actualBuildingBalance = Math.round(buildingFundAfter.balance * 100);
+  testAssert(actualBuildingBalance === expectedBuildingBalance, 'Fund balance correctly decremented only after dual approval');
+
+  // Test 43: Rejection workflow with mandatory justification
+  const rejectableTx = await d1Ctrl.createTransaction({
+    type: 'EXPENSE',
+    status: 'BANKED',
+    method: 'BANK_TRANSFER',
+    totalAmount: 1800.00,
+    date: '2026-09-22',
+    category: 'Equipment',
+    reference_note: 'Unbudgeted AV upgrade quote',
+    splits: [{ fund_id: 'fund-lillah', amount: 1800.00 }]
+  });
+
+  try {
+    await reviewerCtrl.rejectTransaction(rejectableTx.id, 'No');
+    testAssert(false, 'Should reject reason that is too short');
+  } catch (err) {
+    testAssert(err.message.includes('at least 5 characters'), 'Rejection requires detailed justification (>= 5 chars)');
+  }
+
+  const rejectedTx = await reviewerCtrl.rejectTransaction(rejectableTx.id, 'Unbudgeted purchase - Trustees requested formal tender before purchase');
+  testAssert(rejectedTx.status === 'FAILED', 'Rejected transaction status transitioned to FAILED');
+  testAssert(rejectedTx.approval_status === 'REJECTED', 'approval_status marked REJECTED');
+  testAssert(rejectedTx.rejection_reason && rejectedTx.rejection_reason.includes('Unbudgeted purchase'), 'Rejection reason persisted for audit trail');
+
+  // --------------------------------------------------------------------------
+  // ITEM 2: Dated Gift Aid Declarations & Claim Batches (Tests 44-45)
+  // --------------------------------------------------------------------------
+  // Test 44: createGiftAidDeclaration and isGiftAidCovered date window enforcement
+  const gaDonorId = await d1Ctrl.createDonor({
+    name: 'Sister Maryam Begum',
+    email: 'maryam.begum@test.org',
+    address_line_1: '45 Victoria Street',
+    city: 'Bristol',
+    postcode: 'BS1 6HG',
+    giftAidEligible: true
+  });
+
+  const decl = await d1Ctrl.createGiftAidDeclaration({
+    donorId: gaDonorId,
+    scope: 'SINCE_DATE',
+    startDate: '2026-01-01',
+    endDate: '2026-12-31',
+    notes: 'Paper declaration signed during Ramadan campaign'
+  });
+  testAssert(decl && decl.id.startsWith('gadecl-'), 'Gift Aid declaration created with unique ID');
+
+  const coveredMidYear = await d1Ctrl.isGiftAidCovered(gaDonorId, '2026-06-15');
+  const uncoveredPast = await d1Ctrl.isGiftAidCovered(gaDonorId, '2025-12-31');
+  const uncoveredFuture = await d1Ctrl.isGiftAidCovered(gaDonorId, '2027-01-01');
+  testAssert(coveredMidYear === true, 'Donation within declaration validity window covered by Gift Aid');
+  testAssert(uncoveredPast === false, 'Donation prior to declaration start date not covered');
+  testAssert(uncoveredFuture === false, 'Donation after declaration end date not covered');
+
+  // Cancel declaration and verify retroactive coverage termination
+  await d1Ctrl.cancelGiftAidDeclaration(decl.id, '2026-07-01');
+  const coveredBeforeCancel = await d1Ctrl.isGiftAidCovered(gaDonorId, '2026-05-01');
+  const uncoveredAfterCancel = await d1Ctrl.isGiftAidCovered(gaDonorId, '2026-08-01');
+  testAssert(coveredBeforeCancel === true, 'Donation prior to cancellation date remains valid');
+  testAssert(uncoveredAfterCancel === false, 'Donation post-cancellation date correctly rejected for Gift Aid');
+
+  // Test 45: HMRC Gift Aid Claim Batch creation & unique transaction locking
+  const activeDeclDonorId = await d1Ctrl.createDonor({
+    name: 'Brother Tariq Mahmoud',
+    email: 'tariq.m@test.org',
+    address_line_1: '88 Queen Square',
+    city: 'Bristol',
+    postcode: 'BS1 4NT',
+    giftAidEligible: true
+  });
+  await d1Ctrl.createGiftAidDeclaration({
+    donorId: activeDeclDonorId,
+    scope: 'PAST_PRESENT_FUTURE',
+    startDate: '2025-01-01'
+  });
+
+  const gaTx = await d1Ctrl.createTransaction({
+    type: 'INCOME',
+    status: 'BANKED',
+    method: 'BANK_TRANSFER',
+    totalAmount: 200.00,
+    date: '2026-03-15',
+    donorId: activeDeclDonorId,
+    category: 'Donation',
+    giftAid: true,
+    splits: [{ fund_id: 'fund-lillah', amount: 200.00 }]
+  });
+
+  const claimableBeforeBatch = await d1Ctrl.getGiftAidClaimableTransactions({ startDate: '2026-01-01', endDate: '2026-03-31' });
+  testAssert(claimableBeforeBatch.some(t => t.id === gaTx.id), 'Transaction appears in claimable donations query');
+
+  const claimBatch = await d1Ctrl.createGiftAidClaimBatch({
+    periodStart: '2026-01-01',
+    periodEnd: '2026-03-31',
+    transactionIds: [gaTx.id],
+    notes: 'Q1 2026 HMRC Gift Aid Schedule'
+  });
+  testAssert(claimBatch && claimBatch.claimReference.startsWith('HMRC-GA-'), `Claim batch created: ${claimBatch.claimReference}`);
+  testAssert(claimBatch.totalDonationsPence === 20000, 'Total donation amount in pence recorded accurately (20000)');
+  testAssert(claimBatch.totalClaimPence === 5000, '25% Gift Aid tax relief claim calculated accurately (£50.00 / 5000 pence)');
+
+  const claimableAfterBatch = await d1Ctrl.getGiftAidClaimableTransactions({ startDate: '2026-01-01', endDate: '2026-03-31' });
+  testAssert(!claimableAfterBatch.some(t => t.id === gaTx.id), 'Claimed transaction successfully locked and excluded from future claim batches');
+
+  // --------------------------------------------------------------------------
+  // ITEM 3: Governed Jummah Collections Sheet & Breakdown Tests (Tests 46-47)
+  // --------------------------------------------------------------------------
+  // Test 46: Jummah Friday date & distinct counter validation
+  try {
+    await d1Ctrl.createTransaction({
+      type: 'INCOME',
+      status: 'PENDING',
+      method: 'CASH',
+      totalAmount: 50.00,
+      date: '2026-09-21', // Monday
+      isJummah: true,
+      counter_1_name: 'Counter One',
+      counter_2_name: 'Counter Two',
+      splits: [{ fund_id: 'fund-lillah', amount: 50.00 }]
+    });
+    testAssert(false, 'Should block Jummah collection on non-Friday');
+  } catch (err) {
+    testAssert(err.message.includes('must occur on a Friday'), 'D1 strictly enforces Friday collection date for Jummah');
+  }
+
+  try {
+    await d1Ctrl.createTransaction({
+      type: 'INCOME',
+      status: 'PENDING',
+      method: 'CASH',
+      totalAmount: 50.00,
+      date: '2026-09-25', // Friday
+      isJummah: true,
+      counter_1_name: 'Same Counter',
+      counter_2_name: 'Same Counter',
+      splits: [{ fund_id: 'fund-lillah', amount: 50.00 }]
+    });
+    testAssert(false, 'Should block Jummah collection with identical counters');
+  } catch (err) {
+    testAssert(err.message.includes('two distinct witness counters'), 'D1 strictly requires 2 distinct witness counters for Jummah');
+  }
+
+  // Test 47: Governed Jummah denomination breakdown persistence
+  const jummahTx = await d1Ctrl.createTransaction({
+    type: 'INCOME',
+    status: 'PENDING',
+    method: 'CASH',
+    totalAmount: 260.00,
+    date: '2026-09-25', // Friday
+    isJummah: true,
+    counter_1_name: 'Imam Bilal',
+    counter_2_name: 'Brother Farooq',
+    notes_50: 1, // £50
+    notes_20: 8, // £160
+    notes_10: 3, // £30
+    notes_5: 2,  // £10
+    coins_total: 10.00, // £10
+    splits: [{ fund_id: 'fund-lillah', amount: 260.00 }]
+  });
+  testAssert(jummahTx && jummahTx.id, 'Jummah transaction created with denomination breakdown');
+
+  const jummahRow = await db.prepare('SELECT * FROM jummah_collections WHERE transaction_id = ?').bind(jummahTx.id).first();
+  testAssert(jummahRow && jummahRow.notes_50_count === 1 && jummahRow.notes_20_count === 8 && jummahRow.total_pence === 26000,
+    'Jummah collection sheet persisted complete denomination counts (£50x1, £20x8, £10x3, £5x2, £10 coins) and total pence in D1');
+
+  // --------------------------------------------------------------------------
+  // ITEM 4: Server-Side Donor Search & Stripe Fee/Refund (Tests 48-50)
+  // --------------------------------------------------------------------------
+  // Test 48: Server-side Donor Search with SQL LIKE
+  await d1Ctrl.createDonor({
+    name: 'Dr. Zakir Naik',
+    email: 'zakir@research.org',
+    address_line_1: '10 Peace Road',
+    city: 'Mumbai',
+    postcode: 'M1 1AA'
+  });
+  await d1Ctrl.createDonor({
+    name: 'Ustadh Nouman Ali Khan',
+    email: 'nouman@bayyinah.org',
+    address_line_1: '12 Arabic Way',
+    city: 'Dallas',
+    postcode: 'D1 2BB'
+  });
+
+  const searchResults1 = await d1Ctrl.getDonors({ search: 'Zakir' });
+  testAssert(searchResults1.some(d => d.name.includes('Zakir')) && !searchResults1.some(d => d.name.includes('Nouman')),
+    'Server-side donor search returned matching donor (Zakir) and excluded non-matching (Nouman)');
+
+  const searchResults2 = await d1Ctrl.getDonors({ search: 'bayyinah.org' });
+  testAssert(searchResults2.some(d => d.email && d.email.includes('bayyinah.org')),
+    'Server-side donor search matched on donor email address');
+
+  // Test 49: Stripe processor fee segregation to General Fund (fund-lillah)
+  const stripeGrossAmount = 100.00;
+  const stripeFeeAmount = 2.50;
+  const stripeIncomeTx = await d1Ctrl.createTransaction({
+    type: 'INCOME',
+    status: 'BANKED',
+    method: 'STRIPE',
+    totalAmount: stripeGrossAmount,
+    date: '2026-09-22',
+    category: 'Online Donation',
+    reference_note: 'Online Stripe card donation #pi_123456',
+    splits: [{ fund_id: 'fund-building', amount: stripeGrossAmount }]
+  });
+  testAssert(stripeIncomeTx.totalAmount === 100.00, 'Stripe gross donation recorded as full INCOME £100.00');
+
+  // Record fee as segregated EXPENSE against fund-lillah
+  const stripeFeeTx = await d1Ctrl.createTransaction({
+    type: 'EXPENSE',
+    status: 'BANKED',
+    method: 'BANK_TRANSFER',
+    totalAmount: stripeFeeAmount,
+    date: '2026-09-22',
+    category: 'Bank Charges',
+    reference_note: `Stripe processing fee for donation ${stripeIncomeTx.id}`,
+    splits: [{ fund_id: 'fund-lillah', amount: stripeFeeAmount }]
+  });
+  testAssert(stripeFeeTx.totalAmount === 2.50, 'Stripe processing fee segregated as EXPENSE (£2.50)');
+  const feeSplit = await db.prepare('SELECT fund_id FROM transaction_splits WHERE transaction_id = ?').bind(stripeFeeTx.id).first();
+  testAssert(feeSplit && feeSplit.fund_id === 'fund-lillah', 'Processing fee charged strictly against unrestricted General Fund (fund-lillah)');
+
+  // Test 50: Stripe refund compensating reversal expense
+  const refundAmount = 100.00;
+  const stripeRefundTx = await d1Ctrl.createTransaction({
+    type: 'EXPENSE',
+    status: 'BANKED',
+    method: 'STRIPE',
+    totalAmount: refundAmount,
+    date: '2026-09-22',
+    category: 'Refund',
+    reference_note: `Compensating reversal: Stripe refund for donation ${stripeIncomeTx.id}`,
+    splits: [{ fund_id: 'fund-building', amount: refundAmount }]
+  });
+  testAssert(stripeRefundTx.type === 'EXPENSE' && stripeRefundTx.status === 'BANKED',
+    'Stripe refund recorded as compensating reversal EXPENSE transaction');
+  const refundSplit = await db.prepare('SELECT fund_id, amount FROM transaction_splits WHERE transaction_id = ?').bind(stripeRefundTx.id).first();
+  testAssert(refundSplit && refundSplit.fund_id === 'fund-building' && refundSplit.amount === 10000,
+    'Compensating refund reversal accurately credited/debited back against original fund-building in integer pence');
 
   console.log("--------------------------------------------------");
   console.log(`D1 TESTS COMPLETE: ${passCount} PASSED, ${failCount} FAILED`);

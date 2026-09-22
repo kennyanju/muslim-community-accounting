@@ -452,9 +452,15 @@ export class D1Controller {
     // Check balance before archival
     if (updates.is_archived === 1 || updates.is_archived === true) {
       const balanceRow = await db.prepare(`
-        SELECT COALESCE(SUM(CASE WHEN t.type = 'INCOME' THEN s.amount ELSE -s.amount END), 0) as balance_pence
+        SELECT COALESCE(SUM(
+          CASE 
+            WHEN t.id IS NULL THEN 0
+            WHEN t.type = 'INCOME' THEN s.amount 
+            ELSE -s.amount 
+          END
+        ), 0) as balance_pence
         FROM transaction_splits s
-        JOIN transactions t ON t.id = s.transaction_id AND t.status NOT IN ('VOIDED', 'FAILED')
+        JOIN transactions t ON t.id = s.transaction_id AND t.status NOT IN ('VOIDED', 'FAILED', 'PENDING_APPROVAL')
         WHERE s.fund_id = ? AND s.is_voided = 0
       `).bind(id).first();
 
@@ -469,7 +475,7 @@ export class D1Controller {
         FROM transactions t
         JOIN transaction_splits s ON s.transaction_id = t.id AND s.fund_id = ?
         LEFT JOIN asnaf_records a ON a.transaction_id = t.id
-        WHERE t.type = 'EXPENSE' AND t.status NOT IN ('VOIDED', 'FAILED')
+        WHERE t.type = 'EXPENSE' AND t.status NOT IN ('VOIDED', 'FAILED', 'PENDING_APPROVAL')
         GROUP BY t.id, t.total_amount
         HAVING asnaf_disbursed < t.total_amount
       `).bind(id).all();
@@ -539,7 +545,7 @@ export class D1Controller {
     const balanceRow = await db.prepare(`
       SELECT COALESCE(SUM(CASE WHEN t.type = 'INCOME' THEN s.amount ELSE -s.amount END), 0) as balance_pence
       FROM transaction_splits s
-      JOIN transactions t ON t.id = s.transaction_id AND t.status NOT IN ('VOIDED', 'FAILED')
+      JOIN transactions t ON t.id = s.transaction_id AND t.status NOT IN ('VOIDED', 'FAILED', 'PENDING_APPROVAL')
       WHERE s.fund_id = ? AND s.is_voided = 0
     `).bind(sourceId).first();
 
@@ -609,16 +615,46 @@ export class D1Controller {
   // -------------------------------------------------------------
   // DONORS & HMRC GIFT AID (Item #16)
   // -------------------------------------------------------------
-  async getDonors() {
+  async getDonors(options = {}) {
     const db = await this.getDb();
-    const res = await db.prepare(`SELECT * FROM donors ORDER BY name ASC`).all();
+    let sql = `SELECT * FROM donors WHERE 1=1`;
+    const args = [];
+
+    if (options.search && typeof options.search === 'string' && options.search.trim()) {
+      const term = `%${options.search.trim().toLowerCase()}%`;
+      sql += ` AND (
+        LOWER(name) LIKE ? OR
+        LOWER(first_name) LIKE ? OR
+        LOWER(last_name) LIKE ? OR
+        LOWER(email) LIKE ? OR
+        LOWER(postcode) LIKE ?
+      )`;
+      args.push(term, term, term, term, term);
+    }
+
+    if (options.giftAidOnly) {
+      sql += ` AND gift_aid_eligible = 1`;
+    }
+
+    sql += ` ORDER BY name ASC`;
+
+    if (options.limit) {
+      sql += ` LIMIT ?`;
+      args.push(parseInt(options.limit, 10));
+      if (options.offset) {
+        sql += ` OFFSET ?`;
+        args.push(parseInt(options.offset, 10));
+      }
+    }
+
+    const res = await db.prepare(sql).bind(...args).all();
     const donors = res.results || [];
 
     // Aggregate giving totals per donor in a single fast query (only posted INCOME)
     const totalsRes = await db.prepare(`
       SELECT donor_id, SUM(total_amount) as total_pence, COUNT(*) as tx_count
       FROM transactions
-      WHERE status NOT IN ('VOIDED', 'FAILED') AND type = 'INCOME' AND donor_id IS NOT NULL
+      WHERE status NOT IN ('VOIDED', 'FAILED', 'PENDING_APPROVAL') AND type = 'INCOME' AND donor_id IS NOT NULL
       GROUP BY donor_id
     `).all();
 
@@ -769,6 +805,237 @@ export class D1Controller {
   }
 
   // -------------------------------------------------------------
+  // DATED GIFT AID DECLARATIONS & CLAIM BATCHES
+  // -------------------------------------------------------------
+  async isGiftAidCovered(donorId, txDate) {
+    const db = await this.getDb();
+    // 1. Check if donor has any declarations in gift_aid_declarations table
+    const countDecls = await db.prepare(`SELECT count(*) as count FROM gift_aid_declarations WHERE donor_id = ?`).bind(donorId).first('count');
+
+    if ((countDecls || 0) > 0) {
+      // Single source of truth: explicit declarations table
+      const decl = await db.prepare(`
+        SELECT * FROM gift_aid_declarations
+        WHERE donor_id = ?
+          AND (status = 'ACTIVE' OR status = 'CANCELLED')
+          AND start_date <= ?
+          AND (end_date IS NULL OR end_date >= ?)
+          AND (cancellation_date IS NULL OR cancellation_date >= ?)
+        ORDER BY start_date DESC
+        LIMIT 1
+      `).bind(donorId, txDate, txDate, txDate).first();
+
+      return Boolean(decl);
+    }
+
+    // 2. Fallback to donor record for backward compatibility
+    const donor = await db.prepare(`SELECT * FROM donors WHERE id = ?`).bind(donorId).first();
+    if (!donor || !donor.gift_aid_eligible) return false;
+    if (donor.gift_aid_declaration_date && donor.gift_aid_declaration_date > txDate) return false;
+    return true;
+  }
+
+  async createGiftAidDeclaration(data) {
+    this.checkAdmin();
+    const donor_id = data.donor_id || data.donorId;
+    const scope = data.scope || 'PAST_PRESENT_FUTURE';
+    const start_date = data.start_date || data.startDate;
+    const end_date = data.end_date || data.endDate || null;
+    const notes = data.notes || '';
+
+    const db = await this.getDb();
+    const donor = await this.getDonor(donor_id);
+    if (!donor) throw new Error(`Donor '${donor_id}' not found.`);
+    if (!donor.address_line_1 || !donor.postcode) {
+      throw new Error('Donor must have address line 1 and postcode for Gift Aid declaration.');
+    }
+    const id = `gadecl-${crypto.randomUUID().substring(0, 8)}`;
+    const sDate = start_date || new Date().toISOString().substring(0, 10);
+
+    await db.prepare(`
+      INSERT INTO gift_aid_declarations (
+        id, donor_id, scope, start_date, end_date, status, notes, created_at
+      ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, datetime('now'))
+    `).bind(id, donor_id, scope, sDate, end_date, sanitizeText(notes)).run();
+
+    // Sync donor flag
+    await db.prepare(`
+      UPDATE donors SET gift_aid_eligible = 1, gift_aid_declaration_date = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(sDate, donor_id).run();
+
+    await this.logAudit('gift_aid_declarations', id, 'INSERT', { donor_id, scope, start_date: sDate });
+    return await db.prepare(`SELECT * FROM gift_aid_declarations WHERE id = ?`).bind(id).first();
+  }
+
+  async cancelGiftAidDeclaration(id, cancellationDate = null) {
+    this.checkAdmin();
+    const db = await this.getDb();
+    const decl = await db.prepare(`SELECT * FROM gift_aid_declarations WHERE id = ?`).bind(id).first();
+    if (!decl) throw new Error(`Gift Aid declaration '${id}' not found.`);
+
+    const cDate = cancellationDate || new Date().toISOString().substring(0, 10);
+    await db.prepare(`
+      UPDATE gift_aid_declarations
+      SET status = 'CANCELLED', cancellation_date = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(cDate, id).run();
+
+    await this.logAudit('gift_aid_declarations', id, 'CANCEL', { cancellation_date: cDate });
+    return await db.prepare(`SELECT * FROM gift_aid_declarations WHERE id = ?`).bind(id).first();
+  }
+
+  async getGiftAidClaimableTransactions(filters = {}) {
+    const dateFrom = filters.dateFrom || filters.startDate;
+    const dateTo = filters.dateTo || filters.endDate;
+    const db = await this.getDb();
+    let sql = `
+      SELECT t.*, d.name as donor_name, d.title as donor_title,
+             d.first_name as donor_first_name, d.last_name as donor_last_name,
+             d.address_line_1, d.address_line_2, d.city, d.postcode,
+             d.gift_aid_eligible as donor_gift_aid_eligible,
+             d.gift_aid_declaration_date as donor_declaration_date
+      FROM transactions t
+      JOIN donors d ON d.id = t.donor_id
+      WHERE t.type = 'INCOME'
+        AND t.status NOT IN ('VOIDED', 'FAILED', 'PENDING_APPROVAL')
+        AND t.gift_aid = 1
+        AND t.id NOT IN (SELECT transaction_id FROM gift_aid_claim_items)
+    `;
+    const args = [];
+    if (dateFrom) {
+      sql += ` AND t.transaction_date >= ?`;
+      args.push(dateFrom);
+    }
+    if (dateTo) {
+      sql += ` AND t.transaction_date <= ?`;
+      args.push(dateTo);
+    }
+    sql += ` ORDER BY t.transaction_date ASC`;
+
+    const res = await db.prepare(sql).bind(...args).all();
+    const candidateTxs = res.results || [];
+
+    const claimable = [];
+    for (const tx of candidateTxs) {
+      if (tx.address_line_1 && tx.postcode) {
+        const covered = await this.isGiftAidCovered(tx.donor_id, tx.transaction_date);
+        if (covered) {
+          claimable.push({
+            ...tx,
+            total_amount: tx.total_amount / 100,
+            total_amount_pence: tx.total_amount
+          });
+        }
+      }
+    }
+    return claimable;
+  }
+
+  async createGiftAidClaimBatch(data = {}) {
+    if (this.role !== 'ADMIN' && this.role !== 'AUDITOR') {
+      throw new Error('Forbidden: Only Financial Secretary (Admin) or Auditor can submit Gift Aid claims.');
+    }
+    const period_start = data.period_start || data.periodStart;
+    const period_end = data.period_end || data.periodEnd;
+    const notes = data.notes || '';
+    const dateFilters = {};
+    if (period_start) dateFilters.dateFrom = period_start;
+    if (period_end) dateFilters.dateTo = period_end;
+
+    let claimable = await this.getGiftAidClaimableTransactions(dateFilters);
+    if (Array.isArray(data.transactionIds) && data.transactionIds.length > 0) {
+      claimable = claimable.filter(t => data.transactionIds.includes(t.id));
+    }
+
+    if (claimable.length === 0) {
+      throw new Error('No claimable Gift Aid donations found for the specified period, or all eligible donations have already been claimed.');
+    }
+
+    const db = await this.getDb();
+    const claimId = `gaclaim-${crypto.randomUUID().substring(0, 8)}`;
+    const countRow = await db.prepare(`SELECT count(*) as count FROM gift_aid_claims`).first('count');
+    const claimRef = `HMRC-GA-${new Date().getFullYear()}-${String((countRow || 0) + 1).padStart(4, '0')}`;
+
+    let totalDonationsPence = 0;
+    let totalClaimPence = 0;
+
+    const claimStatements = [];
+
+    claimable.forEach(tx => {
+      totalDonationsPence += tx.total_amount_pence;
+      const claimP = Math.round(tx.total_amount_pence * 0.25); // 25% HMRC Gift Aid rate
+      totalClaimPence += claimP;
+
+      const itemId = `gaitem-${crypto.randomUUID().substring(0, 8)}`;
+      claimStatements.push(
+        db.prepare(`
+          INSERT INTO gift_aid_claim_items (id, claim_id, transaction_id, donation_amount_pence, claim_amount_pence, created_at)
+          VALUES (?, ?, ?, ?, ?, datetime('now'))
+        `).bind(itemId, claimId, tx.id, tx.total_amount_pence, claimP)
+      );
+    });
+
+    const headerStmt = db.prepare(`
+      INSERT INTO gift_aid_claims (
+        id, claim_reference, period_start, period_end, total_donations_pence,
+        total_claim_pence, status, submitted_at, submitted_by, notes, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'SUBMITTED', datetime('now'), ?, ?, datetime('now'))
+    `).bind(
+      claimId, claimRef, period_start, period_end, totalDonationsPence,
+      totalClaimPence, this.userId, sanitizeText(notes)
+    );
+
+    // Execute atomic batch
+    await db.batch([headerStmt, ...claimStatements]);
+
+    await this.logAudit('gift_aid_claims', claimId, 'SUBMIT_CLAIM', {
+      claim_reference: claimRef,
+      transaction_count: claimable.length,
+      total_donations: totalDonationsPence / 100,
+      total_claim: totalClaimPence / 100
+    });
+
+    return {
+      id: claimId,
+      claim_reference: claimRef,
+      claimReference: claimRef,
+      period_start,
+      periodStart: period_start,
+      period_end,
+      periodEnd: period_end,
+      transaction_count: claimable.length,
+      transactionCount: claimable.length,
+      total_donations: totalDonationsPence / 100,
+      totalDonations: totalDonationsPence / 100,
+      total_donations_pence: totalDonationsPence,
+      totalDonationsPence,
+      total_claim: totalClaimPence / 100,
+      totalClaim: totalClaimPence / 100,
+      total_claim_pence: totalClaimPence,
+      totalClaimPence,
+      status: 'SUBMITTED'
+    };
+  }
+
+  async getGiftAidClaims() {
+    const db = await this.getDb();
+    const res = await db.prepare(`
+      SELECT c.*, count(i.id) as item_count
+      FROM gift_aid_claims c
+      LEFT JOIN gift_aid_claim_items i ON i.claim_id = c.id
+      GROUP BY c.id
+      ORDER BY c.created_at DESC
+    `).all();
+
+    return (res.results || []).map(r => ({
+      ...r,
+      total_donations: r.total_donations_pence / 100,
+      total_claim: r.total_claim_pence / 100
+    }));
+  }
+
+  // -------------------------------------------------------------
   // TRANSACTIONS & SPLITS (Items #4, #11, #12, #21, #22)
   // -------------------------------------------------------------
   async getTransactions(filters = {}) {
@@ -788,6 +1055,10 @@ export class D1Controller {
     if (filters.status) {
       sql += ` AND t.status = ?`;
       args.push(filters.status.toUpperCase());
+    }
+    if (filters.approval_status) {
+      sql += ` AND t.approval_status = ?`;
+      args.push(filters.approval_status.toUpperCase());
     }
     if (filters.donor_id) {
       sql += ` AND t.donor_id = ?`;
@@ -856,6 +1127,13 @@ export class D1Controller {
       isJummah: Boolean(t.is_jummah),
       gift_aid: Boolean(t.gift_aid),
       giftAid: Boolean(t.gift_aid),
+      approval_status: t.approval_status || 'NOT_REQUIRED',
+      approvalStatus: t.approval_status || 'NOT_REQUIRED',
+      approved_by: t.approved_by || null,
+      approved_at: t.approved_at || null,
+      rejected_by: t.rejected_by || null,
+      rejected_at: t.rejected_at || null,
+      rejection_reason: t.rejection_reason || null,
       total_amount: t.total_amount / 100, // display as pounds
       totalAmount: t.total_amount / 100,
       total_amount_pence: t.total_amount,
@@ -1000,8 +1278,73 @@ export class D1Controller {
     }
 
     const txId = `tx-${crypto.randomUUID().substring(0, 8)}`;
-    const isJummah = (data.is_jummah ? 1 : 0) ||
+    const isJummah = Boolean(data.is_jummah || data.isJummah) ||
       ((category?.toLowerCase().includes('jummah') || refNote?.toLowerCase().includes('jummah')) ? 1 : 0);
+
+    let jummahDetails = null;
+    if (isJummah) {
+      // 1. Enforce Friday collection date
+      const dateObj = new Date(txDate + 'T12:00:00Z');
+      if (dateObj.getUTCDay() !== 5) {
+        throw new Error(`Governance Violation: Jummah cash collections must occur on a Friday (Date '${txDate}' is not a Friday).`);
+      }
+
+      // 2. Enforce two distinct counters
+      const counter1 = sanitizeText(data.counter1 || data.counter_1_name || '');
+      const counter2 = sanitizeText(data.counter2 || data.counter_2_name || '');
+      if (!counter1 || !counter2) {
+        throw new Error('Dual Witness Requirement: Two independent cash counters / two distinct witness counters must be provided for Jummah collections.');
+      }
+      if (counter1.trim().toLowerCase() === counter2.trim().toLowerCase()) {
+        throw new Error('Dual Witness Requirement: Counter 1 and Counter 2 must be two distinct witness counters / individuals (found duplicate witness name).');
+      }
+
+      // 3. Denominations check if provided
+      const n50 = parseInt(data.notes_50 ?? data.notes_50_count ?? 0, 10);
+      const n20 = parseInt(data.notes_20 ?? data.notes_20_count ?? 0, 10);
+      const n10 = parseInt(data.notes_10 ?? data.notes_10_count ?? 0, 10);
+      const n5 = parseInt(data.notes_5 ?? data.notes_5_count ?? 0, 10);
+      const coinsPence = Math.round(parseFloat(data.coins_total || data.coins_total_pence || 0) * 100);
+
+      const denomTotalPence = (n50 * 5000) + (n20 * 2000) + (n10 * 1000) + (n5 * 500) + coinsPence;
+      if (denomTotalPence > 0 && denomTotalPence !== totalPence) {
+        throw new Error(`Denomination mismatch: Counted breakdown (£${(denomTotalPence / 100).toFixed(2)}) does not match total amount (£${(totalPence / 100).toFixed(2)}).`);
+      }
+
+      jummahDetails = {
+        id: `jummah-${crypto.randomUUID().substring(0, 8)}`,
+        notes_50_count: n50,
+        notes_20_count: n20,
+        notes_10_count: n10,
+        notes_5_count: n5,
+        coins_total_pence: coinsPence,
+        counter_1_name: counter1,
+        counter_2_name: counter2,
+        notes: sanitizeText(data.jummah_notes || '')
+      };
+    }
+
+    // Dual Approval Rule (Maker-Checker):
+    // Large expenses (>= approval_threshold_pence) or restricted fund disbursements (e.g. Zakat / Fitrana) require dual approval
+    let requiresApproval = false;
+    let finalStatus = status;
+    let approvalStatus = 'NOT_REQUIRED';
+
+    if (type === 'EXPENSE') {
+      const orgRow = await db.prepare(`SELECT approval_threshold_pence FROM organisations WHERE id = 'main'`).first();
+      const thresholdPence = orgRow?.approval_threshold_pence || 100000; // £1,000 default
+
+      const touchesRestricted = validatedSplits.some(s => {
+        const fund = fundMap.get(s.fund_id);
+        return fund && Boolean(fund.is_restricted);
+      });
+
+      if (totalPence >= thresholdPence || touchesRestricted) {
+        requiresApproval = true;
+        finalStatus = 'PENDING_APPROVAL';
+        approvalStatus = 'PENDING';
+      }
+    }
 
     // Atomic D1 batch statement execution
     const batchStatements = [
@@ -1009,14 +1352,32 @@ export class D1Controller {
         INSERT INTO transactions (
           id, type, status, method, total_amount, transaction_date, donor_id,
           receipt_url, receipt_number, reference_note, category, gift_aid,
-          notes, reconciled, is_jummah, created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, datetime('now'), datetime('now'))
+          notes, reconciled, is_jummah, approval_status, created_by, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, datetime('now'), datetime('now'))
       `).bind(
-        txId, type, status, method, totalPence, txDate, donorId,
+        txId, type, finalStatus, method, totalPence, txDate, donorId,
         data.receipt_url || '', receiptNumber, refNote, category, giftAid,
-        notes, isJummah, this.userId
+        notes, isJummah ? 1 : 0, approvalStatus, this.userId
       )
     ];
+
+    if (jummahDetails) {
+      batchStatements.push(
+        db.prepare(`
+          INSERT INTO jummah_collections (
+            id, transaction_id, collection_date, notes_50_count, notes_20_count,
+            notes_10_count, notes_5_count, coins_total_pence, total_pence,
+            counter_1_name, counter_2_name, notes, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `).bind(
+          jummahDetails.id, txId, txDate, jummahDetails.notes_50_count,
+          jummahDetails.notes_20_count, jummahDetails.notes_10_count,
+          jummahDetails.notes_5_count, jummahDetails.coins_total_pence,
+          totalPence, jummahDetails.counter_1_name, jummahDetails.counter_2_name,
+          jummahDetails.notes
+        )
+      );
+    }
 
     validatedSplits.forEach(s => {
       batchStatements.push(
@@ -1030,8 +1391,16 @@ export class D1Controller {
     await db.batch(batchStatements);
     invalidateBalanceCache();
 
+    if (requiresApproval) {
+      const notifId = `notif-${crypto.randomUUID().substring(0, 8)}`;
+      await db.prepare(`
+        INSERT INTO notifications (id, type, severity, message, transaction_id, created_at)
+        VALUES (?, 'EXPENSE_PENDING_APPROVAL', 'WARNING', ?, ?, datetime('now'))
+      `).bind(notifId, `Dual approval required for £${(totalPence / 100).toFixed(2)} expense (${refNote || category}). Requires review by another trustee.`, txId).run();
+    }
+
     await this.logAudit('transactions', txId, 'INSERT', {
-      type, total_amount: totalPence / 100, receipt_number: receiptNumber, is_jummah: isJummah
+      type, total_amount: totalPence / 100, receipt_number: receiptNumber, is_jummah: isJummah, approval_status: approvalStatus
     });
 
     return await this.getTransaction(txId);
@@ -1121,6 +1490,90 @@ export class D1Controller {
     return await this.getTransaction(id);
   }
 
+  async approveTransaction(id) {
+    if (this.role !== 'ADMIN' && this.role !== 'REVIEWER') {
+      throw new Error('Forbidden: Only Administrators or Reviewers can approve transactions.');
+    }
+    const db = await this.getDb();
+    const tx = await db.prepare(`SELECT * FROM transactions WHERE id = ?`).bind(id).first();
+    if (!tx) throw new Error(`Transaction not found with ID ${id}`);
+
+    if (tx.status !== 'PENDING_APPROVAL') {
+      throw new Error(`Transaction ${id} is not pending approval (current status: ${tx.status}).`);
+    }
+
+    // Strict No-Self-Approval rule
+    if (tx.created_by === this.userId) {
+      throw new Error('Strict Governance Violation: Approver cannot approve their own transaction (Maker-Checker rule violated). Self-approval is strictly prohibited.');
+    }
+
+    const nextStatus = (tx.method === 'CASH') ? 'PENDING' : 'BANKED';
+
+    await db.prepare(`
+      UPDATE transactions SET
+        status = ?,
+        approval_status = 'APPROVED',
+        approved_by = ?,
+        approved_at = datetime('now'),
+        updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(nextStatus, this.userId, id).run();
+
+    invalidateBalanceCache();
+
+    await this.logAudit('transactions', id, 'APPROVE_TRANSACTION', {
+      approved_by: this.userId,
+      previous_status: 'PENDING_APPROVAL',
+      new_status: nextStatus
+    });
+
+    return await this.getTransaction(id);
+  }
+
+  async rejectTransaction(id, reason) {
+    if (this.role !== 'ADMIN' && this.role !== 'REVIEWER') {
+      throw new Error('Forbidden: Only Administrators or Reviewers can reject transactions.');
+    }
+    if (!reason || !reason.trim() || reason.trim().length < 5) {
+      throw new Error('A detailed rejection reason (minimum 5 characters / at least 5 characters) is required.');
+    }
+
+    const db = await this.getDb();
+    const tx = await db.prepare(`SELECT * FROM transactions WHERE id = ?`).bind(id).first();
+    if (!tx) throw new Error(`Transaction not found with ID ${id}`);
+
+    if (tx.status !== 'PENDING_APPROVAL') {
+      throw new Error(`Transaction ${id} is not pending approval (current status: ${tx.status}).`);
+    }
+
+    // Strict No-Self-Approval rule
+    if (tx.created_by === this.userId) {
+      throw new Error('Strict Governance Violation: Self-approval is prohibited. Transactions cannot be rejected or self-resolved by the creator.');
+    }
+
+    await db.prepare(`
+      UPDATE transactions SET
+        status = 'FAILED',
+        approval_status = 'REJECTED',
+        rejected_by = ?,
+        rejected_at = datetime('now'),
+        rejection_reason = ?,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `).bind(this.userId, sanitizeText(reason.trim()), id).run();
+
+    invalidateBalanceCache();
+
+    await this.logAudit('transactions', id, 'REJECT_TRANSACTION', {
+      rejected_by: this.userId,
+      reason: reason.trim(),
+      previous_status: 'PENDING_APPROVAL',
+      new_status: 'FAILED'
+    });
+
+    return await this.getTransaction(id);
+  }
+
   // -------------------------------------------------------------
   // BALANCES & AGGREGATIONS (Item #13)
   // -------------------------------------------------------------
@@ -1133,10 +1586,16 @@ export class D1Controller {
     const db = await this.getDb();
     const res = await db.prepare(`
       SELECT f.id, f.name, f.is_restricted,
-             COALESCE(SUM(CASE WHEN t.type = 'INCOME' THEN s.amount ELSE -s.amount END), 0) as balance_pence
+             COALESCE(SUM(
+               CASE 
+                 WHEN t.id IS NULL THEN 0
+                 WHEN t.type = 'INCOME' THEN s.amount 
+                 ELSE -s.amount 
+               END
+             ), 0) as balance_pence
       FROM funds f
       LEFT JOIN transaction_splits s ON s.fund_id = f.id AND s.is_voided = 0
-      LEFT JOIN transactions t ON t.id = s.transaction_id AND t.status NOT IN ('VOIDED', 'FAILED')
+      LEFT JOIN transactions t ON t.id = s.transaction_id AND t.status NOT IN ('VOIDED', 'FAILED', 'PENDING_APPROVAL')
       WHERE f.is_archived = 0
       GROUP BY f.id, f.name, f.is_restricted
       ORDER BY f.name ASC
@@ -1403,6 +1862,10 @@ export class D1Controller {
     const audits = (await db.prepare(`SELECT * FROM audit_logs`).all()).results || [];
     const budgets = (await db.prepare(`SELECT * FROM budgets`).all()).results || [];
     const asnaf = (await db.prepare(`SELECT * FROM asnaf_records`).all()).results || [];
+    const gaDecls = (await db.prepare(`SELECT * FROM gift_aid_declarations`).all()).results || [];
+    const gaClaims = (await db.prepare(`SELECT * FROM gift_aid_claims`).all()).results || [];
+    const gaItems = (await db.prepare(`SELECT * FROM gift_aid_claim_items`).all()).results || [];
+    const jummahColls = (await db.prepare(`SELECT * FROM jummah_collections`).all()).results || [];
 
     return {
       version: '2.0-d1-integer-cents',
@@ -1415,7 +1878,11 @@ export class D1Controller {
       transaction_splits: splits,
       audit_logs: audits,
       budgets,
-      asnaf_records: asnaf
+      asnaf_records: asnaf,
+      gift_aid_declarations: gaDecls,
+      gift_aid_claims: gaClaims,
+      gift_aid_claim_items: gaItems,
+      jummah_collections: jummahColls
     };
   }
 
@@ -1455,8 +1922,14 @@ export class D1Controller {
     // Step 1: Create snapshot before executing destructive restore
     const snapshotId = await this.createBackupSnapshot('Automated snapshot before restore');
 
-    // Step 2: Atomic restoration - respecting foreign keys (budgets before funds)
+    // Step 2: Atomic restoration - respecting foreign keys
     const clearStatements = [
+      db.prepare(`DELETE FROM notifications`),
+      db.prepare(`DELETE FROM sessions`),
+      db.prepare(`DELETE FROM gift_aid_claim_items`),
+      db.prepare(`DELETE FROM gift_aid_claims`),
+      db.prepare(`DELETE FROM gift_aid_declarations`),
+      db.prepare(`DELETE FROM jummah_collections`),
       db.prepare(`DELETE FROM transaction_splits`),
       db.prepare(`DELETE FROM asnaf_records`),
       db.prepare(`DELETE FROM transactions`),

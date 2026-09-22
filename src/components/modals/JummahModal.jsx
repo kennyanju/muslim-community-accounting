@@ -14,6 +14,11 @@ export default function JummahModal() {
   const [form, setForm] = useState({
     date: new Date().toISOString().substring(0, 10),
     totalAmount: '',
+    notes_50_count: '',
+    notes_20_count: '',
+    notes_10_count: '',
+    notes_5_count: '',
+    coins_total: '',
     counter1: '',
     counter2: '',
     notes: '',
@@ -22,6 +27,15 @@ export default function JummahModal() {
       { fund_id: 'fund-building', amount: '' }
     ]
   });
+
+  const denomSum = useMemo(() => {
+    const n50 = parseInt(form.notes_50_count || 0, 10);
+    const n20 = parseInt(form.notes_20_count || 0, 10);
+    const n10 = parseInt(form.notes_10_count || 0, 10);
+    const n5 = parseInt(form.notes_5_count || 0, 10);
+    const coins = parseFloat(form.coins_total || 0);
+    return (n50 * 50) + (n20 * 20) + (n10 * 10) + (n5 * 5) + coins;
+  }, [form.notes_50_count, form.notes_20_count, form.notes_10_count, form.notes_5_count, form.coins_total]);
 
   const splitSum = useMemo(() => {
     return form.splits.reduce((acc, s) => acc + (parseFloat(s.amount) || 0), 0);
@@ -91,6 +105,14 @@ export default function JummahModal() {
           donorId: 'anonymous',
           reference_note: `Jummah Cash Collection (${form.date})`,
           category: 'Donation',
+          is_jummah: true,
+          counter1: form.counter1.trim(),
+          counter2: form.counter2.trim(),
+          notes_50_count: parseInt(form.notes_50_count || 0, 10),
+          notes_20_count: parseInt(form.notes_20_count || 0, 10),
+          notes_10_count: parseInt(form.notes_10_count || 0, 10),
+          notes_5_count: parseInt(form.notes_5_count || 0, 10),
+          coins_total: parseFloat(form.coins_total || 0),
           splits: form.splits.map(s => ({ fund_id: s.fund_id, amount: parseFloat(s.amount) || 0 })),
           notes: auditNote
         })
@@ -154,6 +176,44 @@ export default function JummahModal() {
               {errors.date && <span className="field-error">{errors.date}</span>}
             </div>
           </div>
+
+          <div className="form-divider" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Cash Denomination Breakdown (Optional Audit Verification)</span>
+            {denomSum > 0 && (
+              <span 
+                className="split-counter-badge badge-match" 
+                style={{ cursor: 'pointer' }} 
+                onClick={() => setForm(f => ({ ...f, totalAmount: denomSum.toFixed(2) }))}
+                title="Click to copy counted sum into Total Cash"
+              >
+                Counted: {org.currency_symbol || '£'}{denomSum.toFixed(2)} (Set Total)
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: '8px', marginBottom: '14px' }}>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label htmlFor="denom-50" style={{ fontSize: '11px' }}>£50 Notes</label>
+              <input id="denom-50" type="number" min="0" step="1" placeholder="0" value={form.notes_50_count} onChange={e => setForm({ ...form, notes_50_count: e.target.value })} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label htmlFor="denom-20" style={{ fontSize: '11px' }}>£20 Notes</label>
+              <input id="denom-20" type="number" min="0" step="1" placeholder="0" value={form.notes_20_count} onChange={e => setForm({ ...form, notes_20_count: e.target.value })} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label htmlFor="denom-10" style={{ fontSize: '11px' }}>£10 Notes</label>
+              <input id="denom-10" type="number" min="0" step="1" placeholder="0" value={form.notes_10_count} onChange={e => setForm({ ...form, notes_10_count: e.target.value })} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label htmlFor="denom-5" style={{ fontSize: '11px' }}>£5 Notes</label>
+              <input id="denom-5" type="number" min="0" step="1" placeholder="0" value={form.notes_5_count} onChange={e => setForm({ ...form, notes_5_count: e.target.value })} />
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label htmlFor="denom-coins" style={{ fontSize: '11px' }}>Coins ({org.currency_symbol || '£'})</label>
+              <input id="denom-coins" type="number" min="0" step="0.01" placeholder="0.00" value={form.coins_total} onChange={e => setForm({ ...form, coins_total: e.target.value })} />
+            </div>
+          </div>
+          {errors.denominations && <span className="field-error" style={{ display: 'block', marginBottom: '10px' }}>{errors.denominations}</span>}
 
           <div className="form-divider">Dual Witness Cash Audit (Governance Requirement)</div>
 

@@ -1041,6 +1041,17 @@ html, body, div, table, .table-wrapper, .tab-viewport, .scrollable-content {
   color: #fbbf24;
 }
 
+.status-pending-approval {
+  background-color: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+[data-theme="dark"] .status-pending-approval {
+  color: #fcd34d;
+  background-color: rgba(245, 158, 11, 0.25);
+  border: 1px solid rgba(245, 158, 11, 0.5);
+}
+
 .status-banked {
   background-color: var(--info-light);
   color: #0369a1;

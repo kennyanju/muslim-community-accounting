@@ -17,21 +17,7 @@ export async function GET(request) {
   const giftAidOnly = searchParams.get('giftAidOnly') === 'true';
 
   const controller = new D1Controller(user.role, user.id, user.name, user.email);
-  let result = await controller.getDonors();
-
-  if (search) {
-    result = result.filter(d =>
-      d.name?.toLowerCase().includes(search) ||
-      d.first_name?.toLowerCase().includes(search) ||
-      d.last_name?.toLowerCase().includes(search) ||
-      d.email?.toLowerCase().includes(search) ||
-      d.postcode?.toLowerCase().includes(search)
-    );
-  }
-
-  if (giftAidOnly) {
-    result = result.filter(d => d.gift_aid_eligible);
-  }
+  const result = await controller.getDonors({ search, giftAidOnly });
 
   const { page, pageSize, offset } = sanitizePagination(searchParams, 50, 200);
   const paginated = result.slice(offset, offset + pageSize);

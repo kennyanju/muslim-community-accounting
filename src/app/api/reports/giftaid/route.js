@@ -55,55 +55,41 @@ export async function GET(request) {
   // HMRC Standard Schedule Header Structure
   let csvContent = "Title,First Name,Last Name,House name or number,Postcode,Donation Date,Amount,Gift Aid Claimed\n";
 
-  const transactions = await controller.getTransactions({
-    type: 'INCOME',
+  const claimableTxs = await controller.getGiftAidClaimableTransactions({
     dateFrom,
     dateTo
   });
 
-  const eligibleTx = transactions.filter(tx =>
-    tx.status !== 'VOIDED' &&
-    tx.status !== 'FAILED' &&
-    tx.gift_aid
-  );
+  claimableTxs.forEach(tx => {
+    let title = tx.donor_title;
+    let firstName = tx.donor_first_name;
+    let lastName = tx.donor_last_name;
 
-  const donors = await controller.getDonors();
-  const donorMap = new Map(donors.map(d => [d.id, d]));
-
-  eligibleTx.forEach(tx => {
-    const donor = donorMap.get(tx.donor_id);
-    if (donor && donor.gift_aid_eligible && donor.address_line_1 && donor.postcode) {
-      // Structured name extraction (Item #16)
-      let title = donor.title;
-      let firstName = donor.first_name;
-      let lastName = donor.last_name;
-
-      if (!firstName && !lastName) {
-        const parsed = splitDonorName(donor.name || '');
-        title = parsed.title;
-        firstName = parsed.firstName;
-        lastName = parsed.lastName;
-      }
-
-      const house = donor.address_line_1.split(',')[0].trim();
-      const pcode = donor.postcode.trim().toUpperCase();
-      const amtNum = parseFloat(tx.total_amount) || 0;
-      const amount = amtNum.toFixed(2);
-      const taxClaimed = calculateGiftAidClaim(amtNum).toFixed(2); // Item #5: HMRC rate formula
-
-      const row = [
-        sanitizeCsvCell(title || ''),
-        sanitizeCsvCell(firstName || ''),
-        sanitizeCsvCell(lastName || ''),
-        sanitizeCsvCell(house),
-        sanitizeCsvCell(pcode),
-        sanitizeCsvCell(tx.transaction_date),
-        amount,
-        taxClaimed
-      ];
-
-      csvContent += row.join(',') + '\n';
+    if (!firstName && !lastName) {
+      const parsed = splitDonorName(tx.donor_name || '');
+      title = parsed.title;
+      firstName = parsed.firstName;
+      lastName = parsed.lastName;
     }
+
+    const house = (tx.address_line_1 || '').split(',')[0].trim();
+    const pcode = (tx.postcode || '').trim().toUpperCase();
+    const amtNum = parseFloat(tx.total_amount) || 0;
+    const amount = amtNum.toFixed(2);
+    const taxClaimed = calculateGiftAidClaim(amtNum).toFixed(2); // Item #5: HMRC rate formula
+
+    const row = [
+      sanitizeCsvCell(title || ''),
+      sanitizeCsvCell(firstName || ''),
+      sanitizeCsvCell(lastName || ''),
+      sanitizeCsvCell(house),
+      sanitizeCsvCell(pcode),
+      sanitizeCsvCell(tx.transaction_date),
+      amount,
+      taxClaimed
+    ];
+
+    csvContent += row.join(',') + '\n';
   });
 
   const shortName = (org.short_name || 'MASJID').replace(/[^a-zA-Z0-9]/g, '_');

@@ -23,6 +23,96 @@ export function getSchemaSql() {
 }
 
 /**
+ * Ensures newly introduced schema columns are added to existing SQLite tables.
+ */
+function applySchemaMigrations(sqlite) {
+  try {
+    const orgCols = sqlite.prepare("PRAGMA table_info(organisations)").all().map(c => c.name);
+    if (orgCols.length > 0 && !orgCols.includes('approval_threshold_pence')) {
+      sqlite.exec("ALTER TABLE organisations ADD COLUMN approval_threshold_pence INTEGER DEFAULT 100000;");
+    }
+
+    const txTableRow = sqlite.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='transactions'").get();
+    if (txTableRow && txTableRow.sql && !txTableRow.sql.includes('PENDING_APPROVAL')) {
+      sqlite.exec(`
+        PRAGMA foreign_keys = OFF;
+        CREATE TABLE transactions_migrated (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL CHECK (type IN ('INCOME', 'EXPENSE')),
+          status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'BANKED', 'VOIDED', 'FAILED', 'PENDING_APPROVAL')),
+          method TEXT NOT NULL DEFAULT 'CASH',
+          total_amount INTEGER NOT NULL,
+          transaction_date TEXT NOT NULL,
+          donor_id TEXT REFERENCES donors(id),
+          receipt_url TEXT,
+          receipt_number TEXT,
+          reference_note TEXT,
+          category TEXT NOT NULL,
+          gift_aid INTEGER DEFAULT 0,
+          notes TEXT,
+          reconciled INTEGER DEFAULT 0,
+          reconciled_at TEXT,
+          reconciled_by TEXT,
+          bank_statement_ref TEXT,
+          is_jummah INTEGER DEFAULT 0,
+          approval_status TEXT NOT NULL DEFAULT 'NOT_REQUIRED' CHECK (approval_status IN ('NOT_REQUIRED', 'PENDING', 'APPROVED', 'REJECTED')),
+          approved_by TEXT REFERENCES users(id),
+          approved_at TEXT,
+          rejected_by TEXT REFERENCES users(id),
+          rejected_at TEXT,
+          rejection_reason TEXT,
+          void_reason TEXT,
+          voided_at TEXT,
+          voided_by TEXT,
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT
+        );
+        INSERT INTO transactions_migrated (
+          id, type, status, method, total_amount, transaction_date, donor_id,
+          receipt_url, receipt_number, reference_note, category, gift_aid,
+          notes, reconciled, reconciled_at, reconciled_by, bank_statement_ref,
+          is_jummah, created_by, created_at, updated_at
+        )
+        SELECT 
+          id, type, status, method, total_amount, transaction_date, donor_id,
+          receipt_url, receipt_number, reference_note, category, gift_aid,
+          notes, reconciled, reconciled_at, reconciled_by, bank_statement_ref,
+          is_jummah, created_by, created_at, updated_at
+        FROM transactions;
+        DROP TABLE transactions;
+        ALTER TABLE transactions_migrated RENAME TO transactions;
+        PRAGMA foreign_keys = ON;
+      `);
+    }
+
+    const txCols = sqlite.prepare("PRAGMA table_info(transactions)").all().map(c => c.name);
+    if (txCols.length > 0) {
+      if (!txCols.includes('approval_status')) {
+        sqlite.exec("ALTER TABLE transactions ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'NOT_REQUIRED';");
+      }
+      if (!txCols.includes('approved_by')) {
+        sqlite.exec("ALTER TABLE transactions ADD COLUMN approved_by TEXT REFERENCES users(id);");
+      }
+      if (!txCols.includes('approved_at')) {
+        sqlite.exec("ALTER TABLE transactions ADD COLUMN approved_at TEXT;");
+      }
+      if (!txCols.includes('rejected_by')) {
+        sqlite.exec("ALTER TABLE transactions ADD COLUMN rejected_by TEXT REFERENCES users(id);");
+      }
+      if (!txCols.includes('rejected_at')) {
+        sqlite.exec("ALTER TABLE transactions ADD COLUMN rejected_at TEXT;");
+      }
+      if (!txCols.includes('rejection_reason')) {
+        sqlite.exec("ALTER TABLE transactions ADD COLUMN rejection_reason TEXT;");
+      }
+    }
+  } catch (_) {
+    // Non-fatal if tables are being initialized for the first time
+  }
+}
+
+/**
  * Synchronously initializes or retrieves the local node:sqlite database.
  * Used for local development, test suites, and CLI scripts.
  */
@@ -60,7 +150,9 @@ export function getSyncSqliteDb(options = {}) {
     // Ensure schema is applied
     const schemaSql = getSchemaSql();
     if (schemaSql) {
+      applySchemaMigrations(sqlite);
       sqlite.exec(schemaSql);
+      applySchemaMigrations(sqlite);
     }
 
     if (!memory) {
@@ -168,7 +260,11 @@ export async function createLocalD1Adapter(sqliteDb = null) {
     sqlite.exec('PRAGMA foreign_keys = ON;');
     sqlite.exec('PRAGMA journal_mode = WAL;');
     const schemaSql = getSchemaSql();
-    if (schemaSql) sqlite.exec(schemaSql);
+    if (schemaSql) {
+      applySchemaMigrations(sqlite);
+      sqlite.exec(schemaSql);
+      applySchemaMigrations(sqlite);
+    }
     localSqliteInstance = sqlite;
   }
 

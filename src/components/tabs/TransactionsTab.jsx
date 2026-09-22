@@ -209,6 +209,35 @@ export default function TransactionsTab({ onLoadReceipt }) {
     optimisticReconcileLock(txId);
   };
 
+  const handleApproveTx = async (txId) => {
+    try {
+      await fetchAPI(`/api/transactions/${txId}/approve`, { method: 'POST' });
+      addToast('Expense authorized and approved under dual-authorization policy.', 'success');
+      refreshData();
+    } catch (err) {
+      addToast(err.message, 'error');
+    }
+  };
+
+  const handleRejectTx = async (txId) => {
+    const reason = window.prompt('Please provide a mandatory reason for rejecting this expense (min 5 characters):');
+    if (!reason) return;
+    if (reason.trim().length < 5) {
+      addToast('Rejection reason must be at least 5 characters.', 'error');
+      return;
+    }
+    try {
+      await fetchAPI(`/api/transactions/${txId}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason.trim() })
+      });
+      addToast('Expense rejected successfully.', 'info');
+      refreshData();
+    } catch (err) {
+      addToast(err.message, 'error');
+    }
+  };
+
   const triggerLedgerDownload = () => {
     let url = '/api/transactions?format=csv';
     if (filterType !== 'all') url += `&type=${filterType}`;
@@ -294,6 +323,7 @@ export default function TransactionsTab({ onLoadReceipt }) {
             >
               <option value="all">All Statuses</option>
               <option value="PENDING">Pending (Cash on Hand)</option>
+              <option value="PENDING_APPROVAL">Pending Dual Approval</option>
               <option value="BANKED">Banked / Cleared</option>
               <option value="VOIDED">Voided</option>
             </select>
@@ -451,8 +481,8 @@ export default function TransactionsTab({ onLoadReceipt }) {
                           {tx.type === 'INCOME' ? '+' : '-'}{formatCurrency(tx.total_amount, org.currency_symbol)}
                         </td>
                         <td>
-                          <span className={`status-badge ${tx.status === 'PENDING' ? 'status-cash' : tx.status === 'BANKED' ? 'status-banked' : tx.status === 'VOIDED' ? 'status-voided' : 'status-failed'}`}>
-                            {tx.status === 'PENDING' ? 'Cash on Hand' : tx.status}
+                          <span className={`status-badge ${tx.status === 'PENDING' ? 'status-cash' : tx.status === 'BANKED' ? 'status-banked' : tx.status === 'PENDING_APPROVAL' ? 'status-pending-approval' : tx.status === 'VOIDED' ? 'status-voided' : 'status-failed'}`}>
+                            {tx.status === 'PENDING' ? 'Cash on Hand' : tx.status === 'PENDING_APPROVAL' ? 'Pending Approval' : tx.status}
                           </span>
                         </td>
                         <td>
@@ -467,6 +497,31 @@ export default function TransactionsTab({ onLoadReceipt }) {
                               >
                                 🧾
                               </button>
+                            )}
+
+                            {tx.status === 'PENDING_APPROVAL' && (user?.role === 'ADMIN' || user?.role === 'REVIEWER') && (
+                              <div style={{ display: 'inline-flex', gap: '4px' }}>
+                                <button
+                                  type="button"
+                                  className="btn-icon"
+                                  disabled={tx.created_by === user?.id}
+                                  onClick={() => handleApproveTx(tx.id)}
+                                  title={tx.created_by === user?.id ? "Strict Governance: Self-approval is prohibited" : "Approve Expense"}
+                                  style={tx.created_by === user?.id ? { opacity: 0.4, cursor: 'not-allowed' } : { color: 'var(--success)' }}
+                                >
+                                  ✅
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-icon"
+                                  disabled={tx.created_by === user?.id}
+                                  onClick={() => handleRejectTx(tx.id)}
+                                  title={tx.created_by === user?.id ? "Strict Governance: Cannot reject own expense" : "Reject Expense"}
+                                  style={tx.created_by === user?.id ? { opacity: 0.4, cursor: 'not-allowed' } : { color: 'var(--danger)' }}
+                                >
+                                  ❌
+                                </button>
+                              </div>
                             )}
 
                             {user?.role === 'ADMIN' && tx.status === 'PENDING' && !tx.reconciled && (
