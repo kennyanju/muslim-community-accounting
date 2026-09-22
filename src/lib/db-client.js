@@ -147,6 +147,7 @@ export function getSyncSqliteDb(options = {}) {
     // Enable Foreign Keys & WAL mode for performance
     try {
       sqlite.exec('PRAGMA foreign_keys = ON;');
+      sqlite.exec('PRAGMA busy_timeout = 5000;');
       if (!memory) {
         sqlite.exec('PRAGMA journal_mode = WAL;');
       }

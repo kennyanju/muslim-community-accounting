@@ -39,6 +39,7 @@ const VoidModal = dynamic(() => import('@/components/modals/VoidModal'), { ssr: 
 const FundModal = dynamic(() => import('@/components/modals/FundModal'), { ssr: false });
 const UserModal = dynamic(() => import('@/components/modals/UserModal'), { ssr: false });
 const AsnafModal = dynamic(() => import('@/components/modals/AsnafModal'), { ssr: false });
+const ReconciliationModal = dynamic(() => import('@/components/modals/ReconciliationModal'), { ssr: false });
 
 import Toast from '@/components/common/Toast';
 import OfflineBanner from '@/components/common/OfflineBanner';
@@ -148,6 +149,11 @@ function MainApp() {
       {modals?.asnaf && (
         <ErrorBoundary componentName="AsnafModal">
           <AsnafModal />
+        </ErrorBoundary>
+      )}
+      {modals?.reconciliation && (
+        <ErrorBoundary componentName="ReconciliationModal">
+          <ReconciliationModal />
         </ErrorBoundary>
       )}
 

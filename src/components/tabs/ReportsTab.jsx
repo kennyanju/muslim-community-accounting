@@ -9,7 +9,7 @@ import { formatCurrency } from '@/utils/formatters';
 export default function ReportsTab() {
   const { transactions, balances, auditLogs, org, openModal } = useApp();
 
-  const [reportFormat, setReportFormat] = useState('sofa'); // 'sofa' | 'cc16'
+  const [reportFormat, setReportFormat] = useState('sofa'); // 'sofa' | 'cc16' | 'giftaid'
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [isExportingGiftAid, setIsExportingGiftAid] = useState(false);
@@ -18,6 +18,19 @@ export default function ReportsTab() {
 
   const [cc16Data, setCc16Data] = useState(null);
   const [loadingCC16, setLoadingCC16] = useState(false);
+
+  // Gift Aid claims & batches state
+  const [giftAidData, setGiftAidData] = useState(null);
+  const [loadingGiftAid, setLoadingGiftAid] = useState(false);
+  const [claimBatches, setClaimBatches] = useState([]);
+  const [loadingBatches, setLoadingBatches] = useState(false);
+  const [activeGiftAidTab, setActiveGiftAidTab] = useState('queue'); // 'queue' | 'history'
+  const [showCreateBatchModal, setShowCreateBatchModal] = useState(false);
+  const [batchPeriodStart, setBatchPeriodStart] = useState('');
+  const [batchPeriodEnd, setBatchPeriodEnd] = useState('');
+  const [batchNotes, setBatchNotes] = useState('');
+  const [submittingBatch, setSubmittingBatch] = useState(false);
+  const [batchMessage, setBatchMessage] = useState(null);
 
   // Debounce date inputs
   const debouncedDateFrom = useDebounce(dateFrom, 250);
@@ -48,6 +61,93 @@ export default function ReportsTab() {
       active = false;
     };
   }, [reportFormat, debouncedDateFrom, debouncedDateTo]);
+
+  // Fetch Gift Aid data when viewing Gift Aid format
+  useEffect(() => {
+    if (reportFormat !== 'giftaid') return;
+
+    let active = true;
+    let url = '/api/reports/giftaid?format=json';
+    if (debouncedDateFrom) url += `&dateFrom=${debouncedDateFrom}`;
+    if (debouncedDateTo) url += `&dateTo=${debouncedDateTo}`;
+
+    fetch(url)
+      .then(res => res.json())
+      .then(res => {
+        if (active && res.success && res.data) {
+          setGiftAidData(res.data);
+        }
+      })
+      .catch(err => console.error('Failed to load Gift Aid claimable queue:', err))
+      .finally(() => {
+        if (active) setLoadingGiftAid(false);
+      });
+
+    fetch('/api/reports/giftaid/claim')
+      .then(res => res.json())
+      .then(res => {
+        if (active && res.success && res.data) {
+          setClaimBatches(res.data);
+        }
+      })
+      .catch(err => console.error('Failed to load Gift Aid claim batches:', err))
+      .finally(() => {
+        if (active) setLoadingBatches(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [reportFormat, debouncedDateFrom, debouncedDateTo]);
+
+  const handleCreateBatch = async (e) => {
+    e.preventDefault();
+    if (!batchPeriodStart || !batchPeriodEnd) {
+      setBatchMessage({ type: 'error', text: 'Please specify both period start and end dates.' });
+      return;
+    }
+    setSubmittingBatch(true);
+    setBatchMessage(null);
+    try {
+      const res = await fetch('/api/reports/giftaid/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          period_start: batchPeriodStart,
+          period_end: batchPeriodEnd,
+          notes: batchNotes
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || data.error || 'Failed to create claim batch');
+      }
+
+      setBatchMessage({
+        type: 'success',
+        text: `HMRC Claim Batch ${data.data.claim_reference} created and locked successfully! ${data.data.transaction_count} donations batched for £${data.data.total_claim.toFixed(2)} Gift Aid tax relief.`
+      });
+      setShowCreateBatchModal(false);
+      setBatchNotes('');
+      setActiveGiftAidTab('history');
+
+      // Refresh claimable queue & batches
+      const [gaRes, batchesRes] = await Promise.all([
+        fetch(`/api/reports/giftaid?format=json${debouncedDateFrom ? `&dateFrom=${debouncedDateFrom}` : ''}${debouncedDateTo ? `&dateTo=${debouncedDateTo}` : ''}`).then(r => r.json()),
+        fetch('/api/reports/giftaid/claim').then(r => r.json())
+      ]);
+      if (gaRes.success) setGiftAidData(gaRes.data);
+      if (batchesRes.success) setClaimBatches(batchesRes.data);
+    } catch (err) {
+      setBatchMessage({ type: 'error', text: err.message });
+    } finally {
+      setSubmittingBatch(false);
+    }
+  };
+
+  const downloadBatchCsv = (batchId) => {
+    window.open(`/api/reports/giftaid?claim_id=${encodeURIComponent(batchId)}`, '_blank');
+  };
 
   const filteredTx = useMemo(() => {
     let list = transactions.filter(t => t.status !== 'VOIDED' && t.status !== 'FAILED');
@@ -155,6 +255,13 @@ export default function ReportsTab() {
             >
               🏛️ Charity Commission CC16
             </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${reportFormat === 'giftaid' ? 'btn-primary' : 'btn-outline'}`}
+              onClick={() => setReportFormat('giftaid')}
+            >
+              📑 HMRC Gift Aid Schedules
+            </button>
           </div>
         </div>
         <div className="view-actions">
@@ -171,6 +278,30 @@ export default function ReportsTab() {
               </button>
               <button type="button" className="btn btn-secondary" onClick={() => window.print()} style={{ minHeight: '44px' }}>
                 <span aria-hidden="true">🖨️</span> Print CC16
+              </button>
+            </>
+          ) : reportFormat === 'giftaid' ? (
+            <>
+              <button 
+                type="button" 
+                className="btn btn-primary" 
+                onClick={() => {
+                  setBatchPeriodStart(dateFrom || `${new Date().getFullYear()}-04-06`);
+                  setBatchPeriodEnd(dateTo || new Date().toISOString().slice(0, 10));
+                  setShowCreateBatchModal(true);
+                }} 
+                style={{ minHeight: '44px' }}
+              >
+                <span aria-hidden="true">🔒</span> Create &amp; Lock Claim Batch
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-outline" 
+                onClick={triggerGiftAidDownload} 
+                disabled={isExportingGiftAid}
+                style={{ minHeight: '44px' }}
+              >
+                <span aria-hidden="true">{isExportingGiftAid ? '⏳' : '📑'}</span> {isExportingGiftAid ? 'Exporting...' : 'Export Current Queue (CSV)'}
               </button>
             </>
           ) : (
@@ -241,8 +372,20 @@ export default function ReportsTab() {
               <p className="report-meta-text">{org.address}</p>
             </div>
             <div className="report-title-badge">
-              <h3>{reportFormat === 'cc16' ? 'RECEIPTS AND PAYMENTS ACCOUNTS (CC16)' : 'STATEMENT OF FINANCIAL ACTIVITIES'}</h3>
-              <p>{reportFormat === 'cc16' ? 'Charity Commission Management Return' : 'Income & Expenditure Report'}</p>
+              <h3>
+                {reportFormat === 'cc16' 
+                  ? 'RECEIPTS AND PAYMENTS ACCOUNTS (CC16)' 
+                  : reportFormat === 'giftaid'
+                  ? 'HMRC GIFT AID CLAIMS SCHEDULE & BATCH SUBMISSIONS'
+                  : 'STATEMENT OF FINANCIAL ACTIVITIES'}
+              </h3>
+              <p>
+                {reportFormat === 'cc16' 
+                  ? 'Charity Commission Management Return' 
+                  : reportFormat === 'giftaid'
+                  ? 'Charities Act 2011 & Taxes Management Act - 25% Tax Relief Schedules'
+                  : 'Income & Expenditure Report'}
+              </p>
               <span className="report-period-tag">
                 {dateFrom || dateTo ? `Period: ${dateFrom || 'Inception'} to ${dateTo || 'Present'}` : 'Year to Date'}
               </span>
@@ -387,6 +530,206 @@ export default function ReportsTab() {
                 </table>
               </div>
             )
+          ) : reportFormat === 'giftaid' ? (
+            loadingGiftAid ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                <span>⏳ Loading HMRC Gift Aid claim schedules and batches...</span>
+              </div>
+            ) : (
+              <div className="giftaid-management" style={{ marginTop: '16px' }}>
+                {batchMessage && (
+                  <div 
+                    style={{ 
+                      padding: '12px 16px', 
+                      borderRadius: '8px', 
+                      marginBottom: '16px',
+                      background: batchMessage.type === 'success' ? 'rgba(72, 187, 120, 0.15)' : 'rgba(229, 62, 62, 0.15)',
+                      border: `1px solid ${batchMessage.type === 'success' ? 'var(--success-color, #48bb78)' : 'var(--danger-color, #e53e3e)'}`,
+                      color: batchMessage.type === 'success' ? 'var(--success-color, #48bb78)' : 'var(--danger-color, #e53e3e)',
+                      fontSize: '0.9rem'
+                    }}
+                  >
+                    {batchMessage.text}
+                  </div>
+                )}
+
+                {/* 3 KPI Summary Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+                  <div className="glass-card" style={{ padding: '16px', borderRadius: '10px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-color)' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'block' }}>Unclaimed Eligible Donations</span>
+                    <strong style={{ fontSize: '1.4rem', color: 'var(--text-primary)', display: 'block', margin: '4px 0' }}>
+                      {formatCurrency(giftAidData?.totalDonations || 0, org.currency_symbol)}
+                    </strong>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{giftAidData?.count || 0} donations awaiting batching</span>
+                  </div>
+                  <div className="glass-card" style={{ padding: '16px', borderRadius: '10px', background: 'rgba(72, 187, 120, 0.05)', border: '1px solid rgba(72, 187, 120, 0.3)' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--success-color, #48bb78)', display: 'block' }}>Recoverable Tax Relief (25%)</span>
+                    <strong style={{ fontSize: '1.4rem', color: 'var(--success-color, #48bb78)', display: 'block', margin: '4px 0' }}>
+                      {formatCurrency(giftAidData?.totalClaim || 0, org.currency_symbol)}
+                    </strong>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>HMRC 25p per £1 donated</span>
+                  </div>
+                  <div className="glass-card" style={{ padding: '16px', borderRadius: '10px', background: 'rgba(66, 153, 225, 0.05)', border: '1px solid rgba(66, 153, 225, 0.3)' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--primary-color, #3182ce)', display: 'block' }}>Historical Claim Batches</span>
+                    <strong style={{ fontSize: '1.4rem', color: 'var(--text-primary)', display: 'block', margin: '4px 0' }}>
+                      {claimBatches.length} Batches
+                    </strong>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Locked &amp; submitted to HMRC</span>
+                  </div>
+                </div>
+
+                {/* Sub Tab Navigation */}
+                <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-color)', marginBottom: '16px', paddingBottom: '8px' }}>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${activeGiftAidTab === 'queue' ? 'btn-primary' : 'btn-outline'}`}
+                    onClick={() => setActiveGiftAidTab('queue')}
+                  >
+                    📋 Claimable Donations Queue ({giftAidData?.count || 0})
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${activeGiftAidTab === 'history' ? 'btn-primary' : 'btn-outline'}`}
+                    onClick={() => setActiveGiftAidTab('history')}
+                  >
+                    🏛️ Submitted Batches History ({claimBatches.length})
+                  </button>
+                </div>
+
+                {/* Sub Tab 1: Claimable Queue */}
+                {activeGiftAidTab === 'queue' && (
+                  <div>
+                    {(!giftAidData?.claimable || giftAidData.claimable.length === 0) ? (
+                      <div style={{ padding: '32px 16px' }}>
+                        <EmptyState
+                          icon="✅"
+                          title="All Eligible Donations Claimed"
+                          description="No unbatched Gift Aid donations were found for the selected period. New income covered by active Gift Aid declarations and verified UK donor addresses will appear here."
+                        />
+                      </div>
+                    ) : (
+                      <div className="table-responsive">
+                        <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '2px solid var(--border-color)', textAlign: 'left' }}>
+                              <th style={{ padding: '8px 12px' }}>Date</th>
+                              <th style={{ padding: '8px 12px' }}>Donor</th>
+                              <th style={{ padding: '8px 12px' }}>Address &amp; Postcode</th>
+                              <th style={{ padding: '8px 12px', textAlign: 'right' }}>Donation ({org.currency_symbol || '£'})</th>
+                              <th style={{ padding: '8px 12px', textAlign: 'right' }}>25% Relief ({org.currency_symbol || '£'})</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {giftAidData.claimable.map(tx => (
+                              <tr key={tx.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                <td style={{ padding: '8px 12px' }}>{tx.transaction_date}</td>
+                                <td style={{ padding: '8px 12px', fontWeight: 600 }}>
+                                  {tx.title ? `${tx.title} ` : ''}{tx.donor_name}
+                                </td>
+                                <td style={{ padding: '8px 12px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                                  {tx.address ? `${tx.address}, ` : ''}{tx.postcode}
+                                </td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                                  {formatCurrency(tx.amount, org.currency_symbol)}
+                                </td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: 'var(--success-color, #48bb78)' }}>
+                                  {formatCurrency(tx.claim, org.currency_symbol)}
+                                </td>
+                              </tr>
+                            ))}
+                            <tr style={{ borderTop: '2px solid var(--border-color)', fontWeight: 700, background: 'rgba(72, 187, 120, 0.08)' }}>
+                              <td colSpan={3} style={{ padding: '10px 12px' }}>Total Claimable in Queue ({giftAidData.count} items)</td>
+                              <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                                {formatCurrency(giftAidData.totalDonations, org.currency_symbol)}
+                              </td>
+                              <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--success-color, #48bb78)' }}>
+                                {formatCurrency(giftAidData.totalClaim, org.currency_symbol)}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Sub Tab 2: Historical Batches */}
+                {activeGiftAidTab === 'history' && (
+                  <div>
+                    {claimBatches.length === 0 ? (
+                      <div style={{ padding: '32px 16px' }}>
+                        <EmptyState
+                          icon="🏛️"
+                          title="No Claim Batches Created Yet"
+                          description="Use 'Create & Lock Claim Batch' to group eligible donations into an official HMRC submission file and prevent duplicate claims."
+                        />
+                      </div>
+                    ) : (
+                      <div className="table-responsive">
+                        <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '2px solid var(--border-color)', textAlign: 'left' }}>
+                              <th style={{ padding: '8px 12px' }}>Batch Reference</th>
+                              <th style={{ padding: '8px 12px' }}>Period</th>
+                              <th style={{ padding: '8px 12px', textAlign: 'center' }}>Items</th>
+                              <th style={{ padding: '8px 12px', textAlign: 'right' }}>Total Donated ({org.currency_symbol || '£'})</th>
+                              <th style={{ padding: '8px 12px', textAlign: 'right' }}>Tax Claimed ({org.currency_symbol || '£'})</th>
+                              <th style={{ padding: '8px 12px' }}>Status</th>
+                              <th style={{ padding: '8px 12px', textAlign: 'right' }}>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {claimBatches.map(b => (
+                              <tr key={b.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                <td style={{ padding: '8px 12px', fontWeight: 700, fontFamily: 'monospace' }}>
+                                  {b.claim_reference}
+                                </td>
+                                <td style={{ padding: '8px 12px', fontSize: '0.85rem' }}>
+                                  {b.period_start} to {b.period_end}
+                                </td>
+                                <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                                  {b.item_count || b.transaction_count}
+                                </td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                                  {formatCurrency(b.total_donations, org.currency_symbol)}
+                                </td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: 'var(--success-color, #48bb78)' }}>
+                                  {formatCurrency(b.total_claim, org.currency_symbol)}
+                                </td>
+                                <td style={{ padding: '8px 12px' }}>
+                                  <span style={{ 
+                                    padding: '2px 8px', 
+                                    borderRadius: '12px', 
+                                    fontSize: '0.72rem', 
+                                    fontWeight: 700, 
+                                    background: 'rgba(72, 187, 120, 0.15)', 
+                                    color: 'var(--success-color, #48bb78)',
+                                    border: '1px solid rgba(72, 187, 120, 0.3)'
+                                  }}>
+                                    {b.status || 'SUBMITTED'}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                                  <button
+                                    type="button"
+                                    className="btn btn-xs btn-outline"
+                                    onClick={() => downloadBatchCsv(b.id)}
+                                    title="Download official HMRC CSV schedule for this batch"
+                                    style={{ fontSize: '0.78rem', padding: '4px 10px' }}
+                                  >
+                                    📥 Download CSV
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
           ) : (
             filteredTx.length === 0 ? (
               <div style={{ padding: '32px 16px' }}>
@@ -519,6 +862,115 @@ export default function ReportsTab() {
           </div>
         </div>
       </div>
+
+      {showCreateBatchModal && (
+        <div 
+          className="modal-backdrop" 
+          style={{ 
+            position: 'fixed', 
+            inset: 0, 
+            backgroundColor: 'rgba(0,0,0,0.65)', 
+            backdropFilter: 'blur(4px)',
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            zIndex: 1000, 
+            padding: '16px' 
+          }}
+        >
+          <div 
+            className="modal-content glass-card" 
+            style={{ 
+              maxWidth: '520px', 
+              width: '100%', 
+              padding: '24px', 
+              borderRadius: '12px', 
+              background: 'var(--bg-secondary)', 
+              border: '1px solid var(--border-color)',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.3)'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.25rem' }}>Create HMRC Gift Aid Claim Batch</h3>
+              <button 
+                type="button" 
+                className="btn btn-sm btn-outline" 
+                onClick={() => setShowCreateBatchModal(false)} 
+                aria-label="Close modal"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.4' }}>
+              This action will assign an official HMRC Reference (e.g. <code>HMRC-GA-2026-XXXX</code>) and lock all matching eligible donations to prevent duplicate claiming.
+            </p>
+
+            <form onSubmit={handleCreateBatch}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                <div>
+                  <label htmlFor="batch-period-start" style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '6px' }}>
+                    Period Start Date *
+                  </label>
+                  <input
+                    id="batch-period-start"
+                    type="date"
+                    required
+                    value={batchPeriodStart}
+                    onChange={e => setBatchPeriodStart(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="batch-period-end" style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '6px' }}>
+                    Period End Date *
+                  </label>
+                  <input
+                    id="batch-period-end"
+                    type="date"
+                    required
+                    value={batchPeriodEnd}
+                    onChange={e => setBatchPeriodEnd(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label htmlFor="batch-notes" style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, marginBottom: '6px' }}>
+                  Batch Notes / Description (Optional)
+                </label>
+                <input
+                  id="batch-notes"
+                  type="text"
+                  placeholder="e.g. Q1 FY2026 Claim - Friday Jummah & Online Donors"
+                  value={batchNotes}
+                  onChange={e => setBatchNotes(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button 
+                  type="button" 
+                  className="btn btn-outline" 
+                  onClick={() => setShowCreateBatchModal(false)} 
+                  disabled={submittingBatch}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn btn-primary" 
+                  disabled={submittingBatch}
+                >
+                  {submittingBatch ? '⏳ Locking Batch...' : '🔒 Create & Lock Batch'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

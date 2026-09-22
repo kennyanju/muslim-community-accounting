@@ -946,15 +946,15 @@ async function runD1TestSuite() {
   testAssert(openTx && openTx.id, 'createTransaction on 2025-04-06 (after closed date) succeeds');
 
   // Insert a mock historical transaction inside the closed period directly for void test
-  const closedHistTxId = 'tx-closed-hist';
+  const closedHistTxId = `tx-closed-hist-${Date.now()}`;
   await db.prepare(`
     INSERT INTO transactions (id, receipt_number, type, status, total_amount, method, category, transaction_date, bank_statement_ref, reconciled, gift_aid, created_by, created_at)
-    VALUES (?, 'BSMC-2024-9999', 'INCOME', 'BANKED', 10000, 'BANK_TRANSFER', 'Donation', '2025-03-15', 'REF-HIST', 0, 0, 'user-d1-admin', '2025-03-15')
-  `).bind(closedHistTxId).run();
+    VALUES (?, ?, 'INCOME', 'BANKED', 10000, 'BANK_TRANSFER', 'Donation', '2025-03-15', 'REF-HIST', 0, 0, 'user-d1-admin', '2025-03-15')
+  `).bind(closedHistTxId, `BSMC-2024-${Date.now().toString().slice(-4)}`).run();
   await db.prepare(`
     INSERT INTO transaction_splits (id, transaction_id, fund_id, amount, is_voided, created_at)
-    VALUES ('spl-closed-hist', ?, 'fund-lillah', 10000, 0, '2025-03-15')
-  `).bind(closedHistTxId).run();
+    VALUES (?, ?, 'fund-lillah', 10000, 0, '2025-03-15')
+  `).bind(`spl-closed-${Date.now()}`, closedHistTxId).run();
 
   // Test 53: voidTransaction in closed period is rejected
   let closedVoidError = null;

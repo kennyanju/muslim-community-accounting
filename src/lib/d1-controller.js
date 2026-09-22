@@ -1103,6 +1103,35 @@ export class D1Controller {
     }));
   }
 
+  async getGiftAidClaimById(claimId) {
+    const db = await this.getDb();
+    const claim = await db.prepare(`SELECT * FROM gift_aid_claims WHERE id = ?`).bind(claimId).first();
+    if (!claim) return null;
+
+    const itemsRes = await db.prepare(`
+      SELECT i.*, t.transaction_date, t.reference_note, t.receipt_number,
+             d.name as donor_name, d.title as donor_title,
+             d.first_name as donor_first_name, d.last_name as donor_last_name,
+             d.address_line_1, d.address_line_2, d.city, d.postcode
+      FROM gift_aid_claim_items i
+      JOIN transactions t ON t.id = i.transaction_id
+      JOIN donors d ON d.id = t.donor_id
+      WHERE i.claim_id = ?
+      ORDER BY t.transaction_date ASC
+    `).bind(claimId).all();
+
+    return {
+      ...claim,
+      total_donations: claim.total_donations_pence / 100,
+      total_claim: claim.total_claim_pence / 100,
+      items: (itemsRes.results || []).map(r => ({
+        ...r,
+        donation_amount: r.donation_amount_pence / 100,
+        claim_amount: r.claim_amount_pence / 100
+      }))
+    };
+  }
+
   // -------------------------------------------------------------
   // TRANSACTIONS & SPLITS (Items #4, #11, #12, #21, #22)
   // -------------------------------------------------------------

@@ -268,6 +268,17 @@ export default function TransactionsTab({ onLoadReceipt }) {
           <p className="view-subtitle">Search, filter, allocate splits, and reconcile journal entries <kbd style={{ marginLeft: '6px', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', background: 'var(--bg-subtle)', border: '1px solid var(--border-color)' }}>Ctrl+N</kbd></p>
         </div>
         <div className="view-actions">
+          {user?.role === 'ADMIN' && (
+            <button 
+              type="button" 
+              className="btn btn-primary" 
+              onClick={() => openModal('reconciliation')} 
+              style={{ minHeight: '44px' }}
+              title="Upload bank CSV and auto-match against unreconciled transactions"
+            >
+              <span aria-hidden="true">🏦</span> Bank Reconciliation
+            </button>
+          )}
           <button type="button" className="btn btn-outline" onClick={triggerLedgerDownload} style={{ minHeight: '44px' }}>
             <span aria-hidden="true">📥</span> Export CSV
           </button>

@@ -10,6 +10,7 @@
     "test": "node src/lib/test_compliance.js && node scripts/verify_backup_restore.js && node src/lib/test_d1_integration.js",
     "verify-restore": "node scripts/verify_backup_restore.js",
     "reset-db": "node scripts/reset_db.js",
+    "seed": "node scripts/seed_demo_data.js",
     "lint": "eslint",
     "analyze": "ANALYZE=true next build --webpack",
     "check-budget": "node scripts/check_budgets.js"
